@@ -65,46 +65,50 @@ def inner_code(symbols, s_2, n, ebno_db, gg):
 
 
 if __name__=='__main__':
-    N = 10 # length of inner code
-    g = np.ones(N).reshape(-1,1)/sqrt(N)
-    sigma_2 = .1
-    num_constellation_symbols = 2
-
-
-    K = 576
+    K = 2304
     NUM_DECODER_ITERS = 10
+    num_constellation_symbols = 2
     alist_file = f'{LDPC_PATH}/alist/wimax_{K}_0_5.alist'
     encoder = ldpc_encoder.ldpc_encoder(alist_file, 5, 7, False)
     decoder = ldpc_decoder.ldpc_decoder(alist_file)
     
-    rounds = 15
-    ebdb_low, ebdb_high = -20,15
-    ebno_dBs = np.linspace(ebdb_low, ebdb_high,10)
+    rounds = 10
+    ebdb_low, ebdb_high = -15,2
+    sigma_2 = .1
+    ebno_dBs = np.linspace(ebdb_low, ebdb_high,25)
     ebno_linears = 10**(ebno_dBs/10)
-    ber_results = []
+
     plt.figure()
-    for eb_dB, eb_lin in zip(ebno_dBs, ebno_linears):
-        print(round(eb_dB,5))
-        errors = 0
-        for k in range(rounds):
-            data = np.random.randint(0,2,encoder.N//2)
-            encoded_data = encoder.encode_data(data)
-            modulated_data = -2.0 * encoded_data + 1.0 # cheap BPSK
-            
-            # received_data = add_awgn(modulated_data,eb_dB) 
-            received_data = inner_code(modulated_data, sigma_2, N, eb_dB, g)
-
-            decoded_data = decoder.ldpc_tdmp(received_data, NUM_DECODER_ITERS)
-            errors += (decoded_data[0:K//2] != data).sum()
-            
-        ber_results.append(errors / (rounds*(decoder.N/2)))
-
-    # Plot the modulated data in the complex plane
-    plt.semilogy(ebno_dBs, ber_results, 'r')
-    plt.axis([ebdb_low, ebdb_high+.1, 1e-5, 1])
     plt.yscale('log')
     plt.grid(True)
-    plt.xlabel('EbNo(dB)')
+    plt.xlabel('Eb/No (dB)')
     plt.ylabel('BER')
-    plt.title('BPSK Bit Error Rate Curve')
+    plt.title(r'BER for Different Outer Code Lengths:\n$\sigma^{2}=.1$')
+    colors = ['blue','orange','green','red']
+    markers = ['o','P','^','s']
+    ls = '--'
+    for ndx,N in enumerate([2,5,7]):
+        ber_results = []
+        g = np.ones(N).reshape(-1,1)/sqrt(N)
+        for eb_dB, eb_lin in zip(ebno_dBs, ebno_linears):
+            print(round(eb_dB,5))
+            errors = 0
+            for k in range(rounds):
+                data = np.random.randint(0,2,encoder.N//2)
+                encoded_data = encoder.encode_data(data)
+                modulated_data = -2.0 * encoded_data + 1.0 # cheap BPSK
+                
+                # received_data = add_awgn(modulated_data,eb_dB) 
+                received_data = inner_code(modulated_data, sigma_2, N, eb_dB, g)
+
+                decoded_data = decoder.ldpc_tdmp(received_data, NUM_DECODER_ITERS)
+                errors += (decoded_data[0:K//2] != data).sum()
+                
+            ber_results.append(errors / (rounds*(decoder.N/2)))
+
+        # Plot the modulated data in the complex plane
+        plt.semilogy(ebno_dBs, ber_results, label=f'N = {N}',
+                     color=colors[ndx], marker=markers[ndx], ls=ls)
+        plt.axis([ebdb_low, 3, 1e-5, 1])
+    plt.legend()
     plt.show()
