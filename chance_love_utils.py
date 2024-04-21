@@ -5,11 +5,15 @@ Created on Thu Mar 21 00:20:16 2024
 @author: dnick
 """
 
+#
+# Utility functions for CL scheme.
+#
+
 import numpy as np
-from numpy.polynomial.polynomial import Polynomial
 from scipy.linalg import toeplitz
 from sympy import Symbol, Poly, expand
 import matplotlib.pyplot as plt
+import matplotlib
 from math import pi
 
 
@@ -80,8 +84,6 @@ def MPSK(data, num_constellation_syms=2, symbol_precision=8, tx_pwr=1):
     return np.sqrt(tx_pwr)*syms
 
 
-
-
 if __name__=='__main__':
     RHO = 3
     N = 2
@@ -95,12 +97,25 @@ if __name__=='__main__':
     print(q)
     print(F.round(3))
     
-    """
-    gamma_opt = []
-    for r in np.linspace(.2,10):
-        gamma_opt.append(calc_gamma_opt(sigma_2,r,N))
+    font = {'family' : 'normal',
+            'weight' : 'normal',
+            'size' : 15}
+    matplotlib.rc('font',**font)
+    gamma_opt = [[],[],[]]
+    rhos = np.linspace(.2,10,100)
+    for r in rhos:
+        gamma_opt[0].append(calc_gamma_opt(1,r,3))
+        gamma_opt[1].append(calc_gamma_opt(1,r,10))
+        gamma_opt[2].append(calc_gamma_opt(.1,r,10))
         
-    plt.plot(np.linspace(.2,10),gamma_opt)
+        
+    plt.plot(rhos,gamma_opt[0],label=r'$N=3,\sigma^{2}=1$')
+    plt.plot(rhos,gamma_opt[1],label=r'$N=10,\sigma^{2}=1$')
+    plt.plot(rhos,gamma_opt[2],label=r'$N=10,\sigma^{2}=0.1$')
+    plt.xlabel(r'$\rho$')
+    plt.ylabel(r'$\gamma_{opt}$')
+    plt.grid()
+    plt.legend()
     
     
     sigmas = 10**(np.linspace(-20,5,100)/10)
@@ -114,7 +129,11 @@ if __name__=='__main__':
             snrs[idx].append(calc_recv_snr(sig,n,gamma_opt,r,beta_opt))
     
     plt.figure()
-    for s in snrs:
-        plt.plot(10*np.log10(sigmas),10*np.log10(s))
-    """
+    for i,s in enumerate(snrs):
+        plt.plot(10*np.log10(sigmas),10*np.log10(s),label=f'N={Ns[i]}')
+    plt.xlabel(r'$\sigma^{2}$ (dB)')
+    plt.ylabel('Received SNR (dB)')
+    plt.grid()
+    plt.legend()
+
         

@@ -4,6 +4,11 @@ Created on Sun Mar 24 20:59:09 2024
 
 @author: dnick
 """
+
+#
+# main() for CL-scheme implementation
+#
+
 import numpy as np
 import matplotlib.pyplot as plt
 from math import sqrt
@@ -11,9 +16,6 @@ from math import sqrt
 import sys
 LDPC_PATH = './wimax_ldpc_lib/'
 sys.path.append(f'{LDPC_PATH}/python_ldpc')
-
-import ldpc_encoder
-import ldpc_decoder
 
 from chance_love_utils import calc_gamma_opt, calc_F, calc_q #,calc_beta_opt
 
@@ -54,12 +56,6 @@ def inner_code(symbols, s_2, n, ebno_db, gg):
         fbk_noise = generate_awgn(n, s_2)   
         y = F@(fwd_noise+fbk_noise) + sym*gg + fwd_noise
         outdata.append((q.T @ y).item())
-
-    # print(f'rho: {rho}')
-    # print(f'gamma: {gamma_opt}')
-    # print(f'beta: {beta_opt}')
-    # print(f'q: {q.T}')
-    # print(f'F: {F}\n')
     
     return outdata
 
@@ -73,20 +69,20 @@ if __name__=='__main__':
     decoder = ldpc_decoder.ldpc_decoder(alist_file)
     
     rounds = 10
-    ebdb_low, ebdb_high = -15,2
-    sigma_2 = .1
+    ebdb_low, ebdb_high = -15,1
+    sigma_2 = .001
     ebno_dBs = np.linspace(ebdb_low, ebdb_high,25)
     ebno_linears = 10**(ebno_dBs/10)
 
-    plt.figure()
-    plt.yscale('log')
-    plt.grid(True)
-    plt.xlabel('Eb/No (dB)')
-    plt.ylabel('BER')
-    plt.title(r'BER for Different Outer Code Lengths:\n$\sigma^{2}=.1$')
     colors = ['blue','orange','green','red']
     markers = ['o','P','^','s']
     ls = '--'
+    fs = 15
+    plt.figure()
+    plt.yscale('log')
+    plt.xlabel('Eb/No (dB)',fontsize=fs)
+    plt.ylabel('BER',fontsize=fs)
+    plt.title(r'BER for Different Outer Code Lengths: $\sigma^{2}=.001$',fontsize=fs)
     for ndx,N in enumerate([2,5,7]):
         ber_results = []
         g = np.ones(N).reshape(-1,1)/sqrt(N)
@@ -111,4 +107,5 @@ if __name__=='__main__':
                      color=colors[ndx], marker=markers[ndx], ls=ls)
         plt.axis([ebdb_low, 3, 1e-5, 1])
     plt.legend()
+    plt.grid()
     plt.show()

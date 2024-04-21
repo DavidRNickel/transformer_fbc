@@ -6,13 +6,7 @@ import scipy.special
 import math
 from copy import copy
 
-#import sys
-#LDPC_PATH = './wimax_ldpc_lib'
-#sys.path.append(f'{LDPC_PATH}/python_ldpc')
 
-#import ldpc_decoder
-#import ldpc_encoder
-#import commpy.modulation as mod
 
 def add_awgn(signal, ebno_db):
     out_data = np.zeros(len(signal), dtype=np.float32)
