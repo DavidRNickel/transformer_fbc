@@ -1,1 +1,4 @@
 experiments/
+*.pdf
+*.png
+*.pkl
