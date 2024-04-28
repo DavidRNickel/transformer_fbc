@@ -1,0 +1,19 @@
+Things that need to be done:
+1) DONE figure out how to generate a lot of data all at once to reduce training time
+2) split up the encoder and decoder calls in the forward pass of the Xformer
+	- put each entry in the batch through a Linear layer with one output
+	- add in forward noise
+	- get all N channel uses for a given bitstream, multiply them by the weight function
+	- pass the weighted channel uses into the decoder
+3) DONE switch loss over to cross-entropy loss
+4) figure out how to fix decoder to a certain number of outputs
+5) how should I limit the input sequence so it only needs K inputs?
+6) convert my current "embeddings" into one-hot representations; add a nn.Embedding layer at the input
+
+Might also consider:
+1) Should I just put the bits as the first K entries into the input then the feedback information as the remaining bits?
+
+
+4/24/24
+- Use a multi-class classification Trasformer with (bitstream & noise, one_hot_index) as the label
+- GOOD IDEA: use standard encoder for transmitter but use BERT for sequence classification on the decoder side (so basically encoders on both sides)

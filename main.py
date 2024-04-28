@@ -19,6 +19,7 @@ sys.path.append(f'{LDPC_PATH}/python_ldpc')
 
 from chance_love_utils import calc_gamma_opt, calc_F, calc_q #,calc_beta_opt
 
+
 def add_awgn(signal, ebno_db):
     out_data = np.zeros(len(signal), dtype=np.float32)
     ebno = 10.0**(ebno_db/10.0)
