@@ -10,6 +10,7 @@ from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderL
 
 from config_class import Config
 from positional_encoding_class import PositionalEncoding
+from timer_class import Timer
 
 ONE_OVER_SQRT_TWO = 1/np.sqrt(2)
 rng = np.random.default_rng()
@@ -17,6 +18,8 @@ fd = 10
 T = 100E-3
 RHO = j0(2*pi*fd*T)
 SQRT_ONE_MIN_RHO_2 = sqrt(1 - RHO**2)
+
+timer = Timer()
 
 
 class FeedbackCode(nn.Module):
@@ -68,6 +71,7 @@ class FeedbackCode(nn.Module):
         self.weight_power = torch.nn.Parameter(torch.Tensor(self.N), requires_grad=True )
         self.weight_power.data.uniform_(1., 1.)
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N)/torch.sum(self.weight_power**2))
+        self.transmit_power_tracking = []
 
         # Parameters for normalizing mean and variance of 
         self.mean_batch = torch.zeros(self.N)
@@ -84,6 +88,7 @@ class FeedbackCode(nn.Module):
         noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.N)).to(self.device)
         self.recvd_y = torch.empty((self.batch_size, self.N), dtype=torch.cfloat).to(self.device)
         self.recvd_y_tilde = []
+        self.transmit_power_tracking = []
 
         # Transmit side
         for t in range(self.N):
@@ -99,6 +104,9 @@ class FeedbackCode(nn.Module):
             if t < self.N-1: # don't need to update the feedback information after the last transmission.
                 knowledge_vecs = self.make_knowledge_vecs(bitstreams, H_real, H_imag, fb_info=self.recvd_y_tilde)
 
+        # print(np.array(self.transmit_power_tracking).T)
+        # print()
+        print(f'Transmit power: {np.sum(np.array(self.transmit_power_tracking).T,axis=1)}')
         dec_out = self.decode_received_symbols(self.recvd_y)
         return dec_out
 
@@ -130,6 +138,7 @@ class FeedbackCode(nn.Module):
     # Process the received symbols at the decoder side. NOT THE DECODING STEP!!!
     def process_bits_at_receiver(self, x, t, H_real, H_imag, noise_ff, noise_fb):
         x = x[:,::2] + 1j*x[:,1::2]
+        self.transmit_power_tracking.append(torch.sum(torch.abs(x)**2,axis=1).detach().clone().cpu().numpy())
         H = H_real + 1j*H_imag
         y =  H * x + noise_ff[:,t].view(-1,1)
         y = y.sum(1)

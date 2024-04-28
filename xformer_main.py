@@ -9,11 +9,13 @@ import sys
 
 from feedback_code_class import FeedbackCode
 from config_class import Config
+from timer_class import Timer
 
 
 if __name__=='__main__':
     conf = Config()
     device = conf.device
+    timer = Timer()
 
     fbc = FeedbackCode(conf).to(device)
 

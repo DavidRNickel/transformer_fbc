@@ -8,8 +8,8 @@ import torch
 class Config():
     def __init__(self):
         # settings for communications-related stuff
-        self.N = 18 # number channel usees
-        self.K = 6 # length of bitstream
+        self.N = 6 # number channel usees
+        self.K = 5 # length of bitstream
         self.num_xmit_chans = 2
         self.knowledge_vec_len = self.K + 2*self.num_xmit_chans + 2*self.N - 2
         self.snr_ff = -1 # in dB
