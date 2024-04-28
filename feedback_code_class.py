@@ -77,29 +77,43 @@ class FeedbackCode(nn.Module):
 
     #
     # forward() calls both encoder and decoder
-    def forward(self, knowledge_vecs, H_real, H_imag):
+    def forward(self, bitstreams, H_real, H_imag):
+        knowledge_vecs = self.make_knowledge_vecs(bitstreams, H_real, H_imag)
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N) / (self.weight_power**2).sum())
         noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.N)).to(self.device)
         noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.N)).to(self.device)
         self.recvd_y = torch.empty((self.batch_size, self.N), dtype=torch.cfloat).to(self.device)
+        self.recvd_y_tilde = []
 
         # Transmit side
         for t in range(self.N):
             x = self.transmit_bits_from_encoder(knowledge_vecs, t)
 
-            # Receive side. dec_out~batch_size x 2^K; y_tilde~batch_size x 1
+            # Receive side. y_tilde~batch_size x 1
             y_tilde = self.process_bits_at_receiver(x, t, H_real, H_imag, noise_ff, noise_fb)
+            self.recvd_y_tilde.append(torch.view_as_real(y_tilde).detach().clone().cpu().numpy())
             
             # Update the knowledge vectors
             H_real, H_imag = self.generate_split_channel_gains_rayleigh(shape=(self.batch_size, self.M_t))
-            H_prime = torch.cat((H_real,H_imag),axis=1)
 
             if t < self.N-1: # don't need to update the feedback information after the last transmission.
-                knowledge_vecs[:,0,self.K : self.K + 2*self.M_t] = H_prime
-                knowledge_vecs[:,0,-2*self.N + 2*t: -2*self.N + 2*t + 2] = torch.view_as_real(y_tilde)
+                knowledge_vecs = self.make_knowledge_vecs(bitstreams, H_real, H_imag, fb_info=self.recvd_y_tilde)
 
         dec_out = self.decode_received_symbols(self.recvd_y)
         return dec_out
+
+    #
+    #
+    def make_knowledge_vecs(self, b, Hr, Hi, fb_info=None):
+        if fb_info is None:
+            fbi = -1 * torch.ones((self.batch_size, 1, 2*self.N -2)).to(self.device)
+        else:
+            with torch.no_grad():
+                fbi = torch.tensor(np.hstack(fb_info)).to(self.device)
+                fbi = F.pad(fbi, pad=(0,2*self.N - 2 - fbi.shape[1]), value=-1).unsqueeze(1)
+        H = torch.cat((Hr,Hi),axis=1).unsqueeze(1)
+
+        return torch.cat((b, H, fbi),axis=2).to(self.device)
 
     #
     # Do all the transmissions from the encoder side to the decoder side.
@@ -140,10 +154,29 @@ class FeedbackCode(nn.Module):
         return sqrt(noise_power) * torch.randn(size=shape,dtype=torch.cfloat).to(self.device)
 
     #
-    # Make Rayleigh fading channels
+    # Make Rayleigh fading channels.
     def generate_split_channel_gains_rayleigh(self,shape):
             chan = self.generate_awgn(shape=shape, noise_power=1)
             return chan.real, chan.imag
+
+    #
+    # Take the input bitstreams and map them to their one-hot representation.
+    def bits_to_one_hot(self, bitstreams):
+        # This is a torch adaptation of https://stackoverflow.com/questions/15505514/binary-numpy-array-to-list-of-integers
+        # It maps binary representations to their one-hot values by first converting the rows into 
+        # the base-10 representation of the binary.
+        x = (bitstreams * (1<<torch.arange(bitstreams.shape[-1]-1,-1,-1).to(self.device))).sum(1)
+
+        return F.one_hot(x, num_classes=2**self.K)
+
+    #
+    # Map the onehot representations into their binary representations.
+    def one_hot_to_bits(self, onehots):
+        x = torch.argmax(onehots,dim=1)
+        # Adapted from https://stackoverflow.com/questions/22227595/convert-integer-to-binary-array-with-suitable-padding
+        bin_representations = (((x[:,None] & (1 << torch.arange(self.K).to(self.device).flip(0)))) > 0).int()
+
+        return bin_representations
 
     #
     # The following methods are from https://anonymous.4open.science/r/RCode1/main_RobustFeedbackCoding.ipynb
@@ -173,22 +206,3 @@ class FeedbackCode(nn.Module):
                 self.std_batch[t_idx] = std_batch
                 outputs = (inputs - mean_batch) / std_batch
         return outputs
-
-    #
-    # Take the input bitstreams and map them to their one-hot representation.
-    def bits_to_one_hot(self, bitstreams):
-        # This is a torch adaptation of https://stackoverflow.com/questions/15505514/binary-numpy-array-to-list-of-integers
-        # It maps binary representations to their one-hot values by first converting the rows into 
-        # the base-10 representation of the binary.
-        x = (bitstreams * (1<<torch.arange(bitstreams.shape[-1]-1,-1,-1).to(self.device))).sum(1)
-
-        return F.one_hot(x, num_classes=2**self.K)
-
-    #
-    # Map the onehot representations into their binary representations.
-    def one_hot_to_bits(self, onehots):
-        x = torch.argmax(onehots,dim=1)
-        # Adapted from https://stackoverflow.com/questions/22227595/convert-integer-to-binary-array-with-suitable-padding
-        bin_representations = (((x[:,None] & (1 << torch.arange(self.K).to(self.device).flip(0)))) > 0).int()
-
-        return bin_representations
