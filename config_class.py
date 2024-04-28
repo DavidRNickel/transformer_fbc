@@ -9,7 +9,7 @@ class Config():
     def __init__(self):
         # settings for communications-related stuff
         self.N = 18 # number channel usees
-        self.K = 4 # length of bitstream
+        self.K = 6 # length of bitstream
         self.num_xmit_chans = 2
         self.knowledge_vec_len = self.K + 2*self.num_xmit_chans + self.N - 1
         self.snr_ff = -1 # in dB
@@ -19,7 +19,7 @@ class Config():
 
         # Model settings
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.batch_size = 128 # set to 8192
+        self.batch_size = 3# set to 8192
         self.max_len_enc = self.N
         self.num_layers_xmit = 2 
         self.num_layers_recv = 3
@@ -30,3 +30,5 @@ class Config():
 
         self.num_epochs = 100
         self.grad_clip = 1
+
+        self.use_tensorboard = True

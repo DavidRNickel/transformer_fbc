@@ -81,15 +81,19 @@ class FeedbackCode(nn.Module):
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N) / (self.weight_power**2).sum())
         noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.N)).to(self.device)
         noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.N)).to(self.device)
-        y_tilde = -1*torch.ones((self.batch_size, 1))
 
         # Transmit side
-        t = 0
-        x = self.transmit_bits_from_encoder(knowledge_vecs, t)
+        for t in range(1):
+            x = self.transmit_bits_from_encoder(knowledge_vecs, t)
+            
+            # Receive side. dec_out~batch_size x 2^K; y_tilde~batch_size x 1
+            dec_out, y_tilde = self.process_bits_at_decoder(x, t, H_real, H_imag, noise_ff, noise_fb)
         
-        # Receive side
-        dec_out, y_tilde = self.process_bits_at_decoder(x, t, H_real, H_imag, noise_ff, noise_fb)
-        
+            # Update the knowledge vectors
+            H_real, H_imag = self.generate_split_channel_gains_rayleigh(shape=(self.batch_size, self.M_t))
+            H_prime = torch.cat((H_real,H_imag),axis=1)
+            knowledge_vecs[:,0,self.K : self.K + 2*self.M_t] = H_prime
+
         return dec_out
 
     #
@@ -107,23 +111,21 @@ class FeedbackCode(nn.Module):
     # Process the received symbols at the decoder side.
     def process_bits_at_decoder(self, x, t, H_real, H_imag, noise_ff, noise_fb):
         x = x[:,::2] + 1j*x[:,1::2]
-        H = torch.tensor(H_real + 1j*H_imag, dtype=torch.cfloat).to(self.device)
+        H = H_real + 1j*H_imag
         y =  H * x + noise_ff[:,t].view(-1,1)
         y = y.sum(1,keepdim=True)
+        y_tilde = y + noise_fb[:,t].view(-1,1)
         y = torch.view_as_real(y)
         y = self.embedding_decoder(y)
         y = self.pos_encoding_decoder(y)
         y = self.decoder(y)
-        y_tilde = y + noise_fb[:,t].view(-1,1)
 
         return self.dec_raw_output(y.squeeze(1)), y_tilde
 
     #
     # Make AWGN
     def generate_awgn(self,shape, noise_power):
-        noise = np.random.normal(0,ONE_OVER_SQRT_TWO,shape) + 1j*np.random.normal(0,ONE_OVER_SQRT_TWO,shape)
-        
-        return sqrt(noise_power) * noise
+        return sqrt(noise_power) * torch.randn(size=shape,dtype=torch.cfloat).to(self.device)
 
     #
     # Make Rayleigh fading channels
@@ -168,7 +170,7 @@ class FeedbackCode(nn.Module):
         # the base-10 representation of the binary.
         x = (bitstreams * (1<<torch.arange(bitstreams.shape[-1]-1,-1,-1).to(self.device))).sum(1)
 
-        return F.one_hot(x)
+        return F.one_hot(x, num_classes=2**self.K)
 
     #
     # Map the onehot representations into their binary representations.
