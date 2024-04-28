@@ -33,7 +33,7 @@ if __name__=='__main__':
         bitstreams = torch.randint(0,2,(conf.batch_size, 1, conf.K)).to(device)
         H_real, H_imag = fbc.generate_split_channel_gains_rayleigh(shape=(conf.batch_size, conf.num_xmit_chans))
         H_prime = torch.cat((H_real,H_imag),axis=1).unsqueeze(1)
-        feedback_info = -1 * torch.ones((conf.batch_size, 1, conf.N - 1)).to(device)
+        feedback_info = -1 * torch.ones((conf.batch_size, 1, 2*conf.N - 2)).to(device)
         knowledge_vectors = torch.cat((bitstreams, H_prime, feedback_info),axis=2).to(device) # do the positional encoding and concatenation at the same time
 
         optimizer.zero_grad()

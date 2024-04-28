@@ -11,7 +11,7 @@ class Config():
         self.N = 18 # number channel usees
         self.K = 6 # length of bitstream
         self.num_xmit_chans = 2
-        self.knowledge_vec_len = self.K + 2*self.num_xmit_chans + self.N - 1
+        self.knowledge_vec_len = self.K + 2*self.num_xmit_chans + 2*self.N - 2
         self.snr_ff = -1 # in dB
         self.snr_fb = -1 # in dB
         self.noise_pwr_ff = 10**(-self.snr_ff/10)

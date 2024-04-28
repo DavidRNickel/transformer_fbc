@@ -57,7 +57,7 @@ class FeedbackCode(nn.Module):
                                                  dropout=conf.dropout,
                                                  activation=self.activation)
         self.decoder = TransformerEncoder(self.dec_layer, num_layers=conf.num_layers_recv)
-        self.embedding_decoder = nn.Sequential(nn.Linear(2, conf.d_model), 
+        self.embedding_decoder = nn.Sequential(nn.Linear(2*self.N, conf.d_model), 
                                                self.activation, 
                                                nn.Linear(conf.d_model,conf.d_model), 
                                                self.activation)
@@ -81,19 +81,24 @@ class FeedbackCode(nn.Module):
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N) / (self.weight_power**2).sum())
         noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.N)).to(self.device)
         noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.N)).to(self.device)
+        self.recvd_y = torch.empty((self.batch_size, self.N), dtype=torch.cfloat).to(self.device)
 
         # Transmit side
-        for t in range(1):
+        for t in range(self.N):
             x = self.transmit_bits_from_encoder(knowledge_vecs, t)
-            
+
             # Receive side. dec_out~batch_size x 2^K; y_tilde~batch_size x 1
-            dec_out, y_tilde = self.process_bits_at_decoder(x, t, H_real, H_imag, noise_ff, noise_fb)
-        
+            y_tilde = self.process_bits_at_receiver(x, t, H_real, H_imag, noise_ff, noise_fb)
+            
             # Update the knowledge vectors
             H_real, H_imag = self.generate_split_channel_gains_rayleigh(shape=(self.batch_size, self.M_t))
             H_prime = torch.cat((H_real,H_imag),axis=1)
-            knowledge_vecs[:,0,self.K : self.K + 2*self.M_t] = H_prime
 
+            if t < self.N-1: # don't need to update the feedback information after the last transmission.
+                knowledge_vecs[:,0,self.K : self.K + 2*self.M_t] = H_prime
+                knowledge_vecs[:,0,-2*self.N + 2*t: -2*self.N + 2*t + 2] = torch.view_as_real(y_tilde)
+
+        dec_out = self.decode_received_symbols(self.recvd_y)
         return dec_out
 
     #
@@ -108,19 +113,26 @@ class FeedbackCode(nn.Module):
         return x
 
     #
-    # Process the received symbols at the decoder side.
-    def process_bits_at_decoder(self, x, t, H_real, H_imag, noise_ff, noise_fb):
+    # Process the received symbols at the decoder side. NOT THE DECODING STEP!!!
+    def process_bits_at_receiver(self, x, t, H_real, H_imag, noise_ff, noise_fb):
         x = x[:,::2] + 1j*x[:,1::2]
         H = H_real + 1j*H_imag
         y =  H * x + noise_ff[:,t].view(-1,1)
-        y = y.sum(1,keepdim=True)
-        y_tilde = y + noise_fb[:,t].view(-1,1)
-        y = torch.view_as_real(y)
+        y = y.sum(1)
+        y_tilde = y + noise_fb[:,t]
+        self.recvd_y[:,t] = y
+
+        return y_tilde
+
+    #
+    # Actually decode all of the received symbols.
+    def decode_received_symbols(self,y):
+        y = torch.cat((y.real, y.imag),axis=1).unsqueeze(1)
         y = self.embedding_decoder(y)
         y = self.pos_encoding_decoder(y)
         y = self.decoder(y)
 
-        return self.dec_raw_output(y.squeeze(1)), y_tilde
+        return self.dec_raw_output(y.squeeze(1))
 
     #
     # Make AWGN
