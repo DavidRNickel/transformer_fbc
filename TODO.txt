@@ -17,3 +17,10 @@ Might also consider:
 4/24/24
 - Use a multi-class classification Trasformer with (bitstream & noise, one_hot_index) as the label
 - GOOD IDEA: use standard encoder for transmitter but use BERT for sequence classification on the decoder side (so basically encoders on both sides)
+
+4/26/24
+- MISO system that implicitly learns the channel fading assuming an evolution term
+- need to pass the final outputs through .5tanh(...)
+
+4/28/24
+- add in weight normalization to transmit_bits_from_encoder

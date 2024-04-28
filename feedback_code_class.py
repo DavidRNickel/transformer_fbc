@@ -1,18 +1,73 @@
-import torch
+import numpy as np
+from math import sqrt, pi
+from scipy.special import j0 #0th order Bessel function, generic softmax
+import sys
 
-class FeedbackCode():
-    def __init__(self, conf, transformer):
+import torch
+from torch import nn
+import torch.nn.functional as F
+from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderLayer
+
+from config_class import Config
+from positional_encoding_class import PositionalEncoding
+
+ONE_OVER_SQRT_TWO = 1/np.sqrt(2)
+rng = np.random.default_rng()
+fd = 10
+T = 100E-3
+RHO = j0(2*pi*fd*T)
+SQRT_ONE_MIN_RHO_2 = sqrt(1 - RHO**2)
+
+
+class FeedbackCode(nn.Module):
+    def __init__(self, conf):
+        super(FeedbackCode, self).__init__()
+
+        self.conf = conf
+        self.d_model = conf.d_model
         self.device = conf.device
         self.batch_size = conf.batch_size
         self.N = conf.N
         self.K = conf.K
-        self.transformer = transformer
+        self.M_t = conf.num_xmit_chans
+        self.noise_pwr_ff = conf.noise_pwr_ff
+        self.noise_pwr_fb = conf.noise_pwr_fb
         self.training = True
+        self.activation = nn.GELU()
+
+        # Set up the transmit side encoder.
+        self.enc_layer = TransformerEncoderLayer(d_model=conf.d_model, 
+                                                 nhead=conf.n_heads, 
+                                                 norm_first=True, 
+                                                 dropout=conf.dropout, 
+                                                 dim_feedforward=conf.scaling_factor*conf.d_model,
+                                                 activation=self.activation)
+        self.encoder = TransformerEncoder(self.enc_layer, num_layers=conf.num_layers_xmit)
+        self.embedding_encoder = nn.Sequential(nn.Linear(conf.knowledge_vec_len, conf.d_model), 
+                                               self.activation, 
+                                               nn.Linear(conf.d_model,conf.d_model), 
+                                               self.activation)
+        self.pos_encoding_encoder = PositionalEncoding(conf.d_model, dropout=conf.dropout)
+        self.enc_raw_output = nn.Linear(self.d_model, 2*self.M_t)
+
+        # Set up the receive side decoder.
+        self.dec_layer = TransformerEncoderLayer(d_model=conf.d_model,
+                                                 nhead=conf.n_heads,
+                                                 norm_first=True,
+                                                 dropout=conf.dropout,
+                                                 activation=self.activation)
+        self.decoder = TransformerEncoder(self.dec_layer, num_layers=conf.num_layers_recv)
+        self.embedding_decoder = nn.Sequential(nn.Linear(2, conf.d_model), 
+                                               self.activation, 
+                                               nn.Linear(conf.d_model,conf.d_model), 
+                                               self.activation)
+        self.pos_encoding_decoder = PositionalEncoding(conf.d_model, dropout=conf.dropout)
+        self.dec_raw_output = nn.Linear(self.d_model, 2**self.K)
 
         # Power weighting-related parameters.
-        self.weight_power = torch.nn.Parameter(torch.Tensor(self.param.N), requires_grad=True )
+        self.weight_power = torch.nn.Parameter(torch.Tensor(self.N), requires_grad=True )
         self.weight_power.data.uniform_(1., 1.)
-        self.weight_power_normalized = torch.sqrt(self.weigth_power**2 * (self.N)/torch.sum(self.weight_power**2))
+        self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N)/torch.sum(self.weight_power**2))
 
         # Parameters for normalizing mean and variance of 
         self.mean_batch = torch.zeros(self.N)
@@ -21,34 +76,80 @@ class FeedbackCode():
         self.normalization_with_saved_data = False # True: inference w/ saved mean, var; False: calculate mean, var
 
     #
-    # Do all the transmissions from the encoder side to the decoder side.
-    def xmit_bits_from_encoder(self):
-        xmitted_syms = None
+    # forward() calls both encoder and decoder
+    def forward(self, knowledge_vecs, H_real, H_imag):
+        self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N) / (self.weight_power**2).sum())
+        noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.N)).to(self.device)
+        noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.N)).to(self.device)
+        y_tilde = -1*torch.ones((self.batch_size, 1))
 
-        return xmitted_syms 
+        # Transmit side
+        t = 0
+        x = self.transmit_bits_from_encoder(knowledge_vecs, t)
+        
+        # Receive side
+        dec_out, y_tilde = self.process_bits_at_decoder(x, t, H_real, H_imag, noise_ff, noise_fb)
+        
+        return dec_out
+
+    #
+    # Do all the transmissions from the encoder side to the decoder side.
+    def transmit_bits_from_encoder(self, x, t):
+        x = self.embedding_encoder(x)
+        x = self.pos_encoding_encoder(x)
+        x = self.encoder(x)
+        x = self.enc_raw_output(x).squeeze(1)
+        x = self.normalize_transmit_signal_power(x, t)
+
+        return x
 
     #
     # Process the received symbols at the decoder side.
-    def process_bits_at_decoder(self):
-        # put the forward pass from the decoder here
-        pass
+    def process_bits_at_decoder(self, x, t, H_real, H_imag, noise_ff, noise_fb):
+        x = x[:,::2] + 1j*x[:,1::2]
+        H = torch.tensor(H_real + 1j*H_imag, dtype=torch.cfloat).to(self.device)
+        y =  H * x + noise_ff[:,t].view(-1,1)
+        y = y.sum(1,keepdim=True)
+        y = torch.view_as_real(y)
+        y = self.embedding_decoder(y)
+        y = self.pos_encoding_decoder(y)
+        y = self.decoder(y)
+        y_tilde = y + noise_fb[:,t].view(-1,1)
+
+        return self.dec_raw_output(y.squeeze(1)), y_tilde
 
     #
-    # The following methods are taken from https://anonymous.4open.science/r/RCode1/main_RobustFeedbackCoding.ipynb
+    # Make AWGN
+    def generate_awgn(self,shape, noise_power):
+        noise = np.random.normal(0,ONE_OVER_SQRT_TWO,shape) + 1j*np.random.normal(0,ONE_OVER_SQRT_TWO,shape)
+        
+        return sqrt(noise_power) * noise
+
+    #
+    # Make Rayleigh fading channels
+    def generate_split_channel_gains_rayleigh(self,shape):
+            chan = self.generate_awgn(shape=shape, noise_power=1)
+            return chan.real, chan.imag
+
+    #
+    # The following methods are from https://anonymous.4open.science/r/RCode1/main_RobustFeedbackCoding.ipynb
     # which is the code for the paper "Robust Non-Linear Feedback Coding via Power-Constrained Deep Learning".
     #
 
     #
     # Handle the power weighting on the transmit bits.
-    def make_normalize_power_weights(self):
-        pass
+    def normalize_transmit_signal_power(self, x, t):
+        x = torch.tanh(x)
+        x = self.normalization(x, t)
+
+        return self.weight_power_normalized[t] * (1/sqrt(2*self.M_t)) * x 
 
     #
     # Normalize the batch.
     def normalization(self, inputs, t_idx):
         mean_batch = torch.mean(inputs)
         std_batch = torch.std(inputs)
-        if self.Training == True:
+        if self.training == True:
             outputs = (inputs - mean_batch) / std_batch
         else:
             if self.normalization_with_saved_data:
@@ -60,16 +161,20 @@ class FeedbackCode():
         return outputs
 
     #
-    # Convert the batch of bitstreams into a one-hot representation.
-    def one_hot(self, bit_vec):
-        # assumes bit_vec is (batch, K, 1) in shape
-        bit_vec = bit_vec.squeeze(-1)
+    # Take the input bitstreams and map them to their one-hot representation.
+    def bits_to_one_hot(self, bitstreams):
+        # This is a torch adaptation of https://stackoverflow.com/questions/15505514/binary-numpy-array-to-list-of-integers
+        # It maps binary representations to their one-hot values by first converting the rows into 
+        # the base-10 representation of the binary.
+        x = (bitstreams * (1<<torch.arange(bitstreams.shape[-1]-1,-1,-1).to(self.device))).sum(1)
 
-        ind = torch.arange(0,self.batch_size).repeat(self.batch_size,1).to(self.device)
-        ind_vec = torch.sum(torch.mul(bit_vec,2**ind),axis=1).long()
-        b_onehot = torch.zeros((self.batch_size, 2**self.K),dtype=int)
-        for i in range(self.batch_size):
-            b_onehot[i, ind_vec[i]] = 1
-        
-        return b_onehot
-    
+        return F.one_hot(x)
+
+    #
+    # Map the onehot representations into their binary representations.
+    def one_hot_to_bits(self, onehots):
+        x = torch.argmax(onehots,dim=1)
+        # Adapted from https://stackoverflow.com/questions/22227595/convert-integer-to-binary-array-with-suitable-padding
+        bin_representations = (((x[:,None] & (1 << torch.arange(self.K).to(self.device).flip(0)))) > 0).int()
+
+        return bin_representations

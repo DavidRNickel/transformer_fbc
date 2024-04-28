@@ -1,61 +1,35 @@
-import numpy as np
-from math import sqrt
-
 import torch
 from torch import nn
-from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderLayer
+import numpy as np
 
+from feedback_code_class import FeedbackCode
 from config_class import Config
 
-ONE_OVER_SQRT_TWO = 1/np.sqrt(2)
-
-#
-# Make AWGN
-def generate_awgn(shape, noise_power):
-    noise = np.random.normal(0,ONE_OVER_SQRT_TWO,shape) + 1j*np.random.normal(0,ONE_OVER_SQRT_TWO,shape)
-    
-    return sqrt(noise_power) * noise
-
-
-#
-# Make Rayleigh fading channels
-def generate_channel_gains_rayleigh(self, shape, prev_h=None, is_pu_su=False):
-        if self.is_symmetric_gains and not is_pu_su:
-            temp = np.tril(self.generate_AWGN(shape=shape, noise_power=1))
-            e = np.empty(shape=shape,dtype=np.complex64)
-            if len(shape) == 3:
-                for k in range(self.K):
-                    e[k] = temp[k] + temp[k].T - np.diag(temp[k].diagonal())
-            else:
-                e = temp + temp.T - np.diag(temp.diagonal())
-
-            # multiply by random phase
-            e *= np.exp(1j * self.rng.uniform(0, 2*pi, size=shape))
-
-        else:
-            e = self.generate_AWGN(shape=shape, noise_power=1)
-
-        if prev_h is not None:
-            # h(t) = rho*h(t-1) + sqrt(1-rho^2)*e(t)
-            return self.RHO*prev_h + self.SQRT_ONE_MIN_RHO_2*e
-
-        else:
-            # h(t) = e(t)
-            return e
 
 if __name__=='__main__':
     conf = Config()
+    device = conf.device
+    fbc = FeedbackCode(conf).to(device)
 
-    enc_layer = TransformerEncoderLayer(d_model=conf.d_model,
-                                         nhead=conf.n_heads,
-                                         norm_first=True,
-                                         dropout=conf.drop_prob,
-                                         activation='gelu')
-    encoder = TransformerEncoder(enc_layer, num_layers=2)
+    num_epochs = 1 #conf.num_epochs 
+    clip = conf.grad_clip 
+    optimizer = torch.optim.AdamW(fbc.parameters(), lr=.001, weight_decay=.01)
+    loss_fn = nn.CrossEntropyLoss()
 
-    embedding_layer = nn.Linear(conf.knowledge_vec_len,conf.d_model)
+    x = torch.tensor([[1,0,1,0],[1,1,1,1]]).to(device)
+    y =fbc.bits_to_one_hot(x)
+    print(fbc.one_hot_to_bits(y))
 
-    bitstreams = np.random.randint(0,2,(conf.batch_size, 1, conf.K))
-    H = generate_channel_gains_rayleigh(shape=(conf.batch_size, 1, conf.num_xmit_chans))
+    # for epoch in range(num_epochs):
+    #     bitstreams = np.random.randint(0,2,(conf.batch_size, 1, conf.K))
+    #     H_real, H_imag = fbc.generate_split_channel_gains_rayleigh(shape=(conf.batch_size, 1, conf.num_xmit_chans))
+    #     H_prime = np.concatenate((H_real,H_imag),axis=2)
+    #     feedback_info = -1 * np.ones((conf.batch_size, 1, conf.N - 1))
+    #     knowledge_vectors = torch.Tensor(np.concatenate((bitstreams, H_prime, feedback_info),axis=2)).to(device) # do the positional encoding and concatenation at the same time
 
-    # print(encoder(embedding_layer(src)).shape)
+    #     optimizer.zero_grad()
+    #     output = fbc(knowledge_vectors, H_real.squeeze(1), H_imag.squeeze(1))
+    #     b_one_hot = fbc.one_hot(torch.tensor(bitstreams).int().permute(0,2,1))
+    #     print(b_one_hot.shape)
+    #     # print(output.shape)
+    #     # loss = loss_fn(output)
