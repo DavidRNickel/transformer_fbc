@@ -10,7 +10,8 @@ import torch.nn.functional as F
 from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderLayer
 
 from config_class import Config
-from positional_encoding_class import PositionalEncoding
+# from positional_encoding_class import PositionalEncoding
+from pos_enc_test import PositionalEncoding
 from timer_class import Timer
 
 ONE_OVER_SQRT_TWO = 1/np.sqrt(2)
@@ -38,6 +39,7 @@ class FeedbackCode(nn.Module):
         self.noise_pwr_fb = conf.noise_pwr_fb
         self.training = True
         self.activation = nn.GELU()
+        self.pooling_type = conf.pooling_type
 
         # Set up the transmit side encoder.
         self.enc_layer = TransformerEncoderLayer(d_model=conf.d_model, 
@@ -47,11 +49,13 @@ class FeedbackCode(nn.Module):
                                                  dim_feedforward=conf.scaling_factor*conf.d_model,
                                                  activation=self.activation)
         self.encoder = TransformerEncoder(self.enc_layer, num_layers=conf.num_layers_xmit)
-        self.embedding_encoder = nn.Sequential(nn.Linear(conf.knowledge_vec_len, conf.d_model), 
+        self.embedding_encoder = nn.Sequential(nn.Linear(1, conf.d_model), 
                                                self.activation, 
                                                nn.Linear(conf.d_model,conf.d_model), 
                                                self.activation)
-        self.pos_encoding_encoder = PositionalEncoding(conf.d_model, dropout=conf.dropout, max_len=conf.knowledge_vec_len)
+        self.pos_encoding_encoder = PositionalEncoding(d_model=conf.d_model, 
+                                                       dropout=conf.dropout, 
+                                                       max_len=conf.knowledge_vec_len)
         self.enc_raw_output = nn.Linear(self.d_model, 2*self.M_t)
 
         # Set up the receive side decoder.
@@ -61,11 +65,13 @@ class FeedbackCode(nn.Module):
                                                  dropout=conf.dropout,
                                                  activation=self.activation)
         self.decoder = TransformerEncoder(self.dec_layer, num_layers=conf.num_layers_recv)
-        self.embedding_decoder = nn.Sequential(nn.Linear(2*self.N, conf.d_model), 
+        self.embedding_decoder = nn.Sequential(nn.Linear(1, conf.d_model), 
                                                self.activation, 
                                                nn.Linear(conf.d_model,conf.d_model), 
                                                self.activation)
-        self.pos_encoding_decoder = PositionalEncoding(conf.d_model, dropout=conf.dropout, max_len=conf.knowledge_vec_len)
+        self.pos_encoding_decoder = PositionalEncoding(d_model=conf.d_model, 
+                                                       dropout=conf.dropout, 
+                                                       max_len=2*self.N)
         self.dec_raw_output = nn.Linear(self.d_model, 2**self.K)
 
         # Power weighting-related parameters.
@@ -125,14 +131,17 @@ class FeedbackCode(nn.Module):
         H = torch.cat((Hr,Hi),axis=1).unsqueeze(1)
 
         return torch.cat((b, H, fbi),axis=2).to(self.device)
+        
 
     #
     # Do all the transmissions from the encoder side to the decoder side.
     def transmit_bits_from_encoder(self, x, t):
-        # the transpose is because I was stupid in how I made these in the first place...
-        x = self.embedding_encoder(x)
+        # The transpose stuff is because I did something wrong earlier on and don't want to change
+        # up all the parts of the code that work correctly...
+        x = self.embedding_encoder(torch.transpose(x,1,2))
         x = self.pos_encoding_encoder(x)
         x = self.encoder(x)
+        x = self.pooling(x)
         x = self.enc_raw_output(x).squeeze(1)
         x = self.normalize_transmit_signal_power(x, t)
 
@@ -155,11 +164,20 @@ class FeedbackCode(nn.Module):
     # Actually decode all of the received symbols.
     def decode_received_symbols(self,y):
         y = torch.cat((y.real, y.imag),axis=1).unsqueeze(1)
-        y = self.embedding_decoder(y)
+        y = self.embedding_decoder(torch.transpose(y,1,2))
         y = self.pos_encoding_decoder(y)
         y = self.decoder(y)
+        y = self.pooling(y)
 
         return self.dec_raw_output(y.squeeze(1))
+
+    #
+    #
+    def pooling(self,z):
+        if self.pooling_type == 'avg':
+            return z[:,].mean(1)
+        elif self.pooling_type == 'max':
+            return torch.max(z[:,],1)[0]
 
     #
     # Make AWGN
@@ -193,8 +211,8 @@ class FeedbackCode(nn.Module):
 
     #
     #
-    def calc_error_rates(output, bits):
-        pass
+    def calc_error_rates(self, output, bits):
+        return 100,100
 
     #
     # The following methods are from https://anonymous.4open.science/r/RCode1/main_RobustFeedbackCoding.ipynb

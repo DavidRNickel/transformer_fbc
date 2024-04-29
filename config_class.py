@@ -8,8 +8,8 @@ import torch
 class Config():
     def __init__(self):
         # settings for communications-related stuff
-        self.N = 6 # number channel usees
-        self.K = 5 # length of bitstream
+        self.N = 18 # number channel usees
+        self.K = 6 # length of bitstream
         self.num_xmit_chans = 2
         self.knowledge_vec_len = self.K + 2*self.num_xmit_chans + 2*self.N - 2
         self.snr_ff = -1 # in dB
@@ -27,10 +27,12 @@ class Config():
         self.scaling_factor = 4
         self.dropout = 0.0
 
+        self.num_epochs = 10
         self.batch_size = 10 # set to 8192
         self.num_training_samps = int(100)
-        self.num_epochs = 1
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size
         self.grad_clip = 1
+        self.num_valid_samps = 100
+        self.pooling_type = 'avg'
 
         self.use_tensorboard = True

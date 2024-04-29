@@ -24,3 +24,6 @@ Might also consider:
 
 4/28/24
 - add in weight normalization to transmit_bits_from_encoder
+
+4/29/24
+- pick a channel on which to send the feedback information then use that to normalize the feedback info
