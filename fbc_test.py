@@ -117,6 +117,7 @@ class FeedbackCode(nn.Module):
                 knowledge_vecs = self.make_knowledge_vecs(bitstreams, H_real, H_imag, fb_info=self.recvd_y_tilde)
 
         dec_out = self.decode_received_symbols(self.recvd_y)
+
         return dec_out
 
     #
@@ -131,7 +132,6 @@ class FeedbackCode(nn.Module):
         H = torch.cat((Hr,Hi),axis=1).unsqueeze(1)
 
         return torch.cat((b, H, fbi),axis=2).to(self.device)
-        
 
     #
     # Do all the transmissions from the encoder side to the decoder side.
@@ -211,8 +211,12 @@ class FeedbackCode(nn.Module):
 
     #
     #
-    def calc_error_rates(self, output, bits):
-        return 100,100
+    def calc_error_rates(self, bit_estimates, bits):
+        not_eq = np.not_equal(bit_estimates, bits)
+        ber = not_eq.mean()
+        bler = (not_eq.sum(1)>0).mean()
+
+        return ber, bler
 
     #
     # The following methods are from https://anonymous.4open.science/r/RCode1/main_RobustFeedbackCoding.ipynb

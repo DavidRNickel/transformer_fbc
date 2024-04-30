@@ -19,6 +19,7 @@ class Config():
 
         # Model settings
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        print(f'device: {self.device}')
         self.max_len_enc = self.N
         self.num_layers_xmit = 2 
         self.num_layers_recv = 3
@@ -27,12 +28,12 @@ class Config():
         self.scaling_factor = 4
         self.dropout = 0.0
 
-        self.num_epochs = 10
-        self.batch_size = 10 # set to 8192
-        self.num_training_samps = int(100)
+        self.num_epochs = 100
+        self.batch_size = 1000
+        self.num_training_samps = int(1e5)
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size
         self.grad_clip = 1
-        self.num_valid_samps = 100
+        self.num_valid_samps = int(1e4)
         self.pooling_type = 'avg'
 
         self.use_tensorboard = True

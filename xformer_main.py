@@ -6,6 +6,7 @@ from torch.nn import functional as F
 import numpy as np
 import datetime
 import sys
+import pickle as pkl
 
 # from feedback_code_class import FeedbackCode
 from fbc_test import FeedbackCode
@@ -30,7 +31,8 @@ def test_model(test_data, model, conf):
             H_real, H_imag = fbc.generate_split_channel_gains_rayleigh(shape=(conf.batch_size, conf.num_xmit_chans))
 
             output = model(bits, H_real, H_imag, noise_ff, noise_fb)
-            ber_tmp, bler_tmp = model.calc_error_rates(output, bits)
+            bit_estimates = model.one_hot_to_bits(output).detach().clone().cpu().numpy().astype(np.bool_)
+            ber_tmp, bler_tmp = model.calc_error_rates(bit_estimates, bits.squeeze(1).detach().clone().cpu().numpy().astype(np.bool_))
 
             ber += ber_tmp
             bler += bler_tmp
@@ -70,7 +72,9 @@ if __name__=='__main__':
     grad_clip = conf.grad_clip 
     optimizer = torch.optim.AdamW(fbc.parameters(), lr=.001, weight_decay=.01)
     loss_fn = nn.CrossEntropyLoss()
-
+    bit_errors = []
+    block_errors = []
+    # pwr_average = []
     for epoch in range(num_epochs):
         fbc.train()
         losses = []
@@ -98,6 +102,12 @@ if __name__=='__main__':
         print(f'Epoch: {epoch}, Average loss: {np.mean(losses)}')
         print('====================================================\n')
 
-        ber_val = test_model(test_data=test_data, 
-                             model=fbc,
-                             conf=conf)
+        ber, bler, _ = test_model(test_data=test_data, model=fbc, conf=conf)
+        bit_errors.append(ber)
+        block_errors.append(bler)
+    
+    print(f'ber: {np.array(bit_errors)}')
+    print(f'bler: {np.array(block_errors)}')
+    b = {'ber' : np.array(bit_errors), 'bler' : np.array(block_errors)}
+    with open('test_results.pkl', 'wb') as f:
+        pkl.dump(b,f)
