@@ -2,26 +2,24 @@ import numpy as np
 from math import sqrt, pi
 from scipy.special import j0 #0th order Bessel function, generic softmax
 import sys
-from collections import deque
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderLayer
 
-from config_class import Config
-# from positional_encoding_class import PositionalEncoding
 from pos_enc_test import PositionalEncoding
 from timer_class import Timer
 
+timer = Timer()
+
+# constants
 ONE_OVER_SQRT_TWO = 1/np.sqrt(2)
 rng = np.random.default_rng()
 fd = 10
 T = 100E-3
 RHO = j0(2*pi*fd*T)
 SQRT_ONE_MIN_RHO_2 = sqrt(1 - RHO**2)
-
-timer = Timer()
 
 
 class FeedbackCode(nn.Module):
@@ -42,13 +40,6 @@ class FeedbackCode(nn.Module):
         self.pooling_type = conf.pooling_type
 
         # Set up the transmit side encoder.
-        self.enc_layer = TransformerEncoderLayer(d_model=conf.d_model, 
-                                                 nhead=conf.n_heads, 
-                                                 norm_first=True, 
-                                                 dropout=conf.dropout, 
-                                                 dim_feedforward=conf.scaling_factor*conf.d_model,
-                                                 activation=self.activation)
-        self.encoder = TransformerEncoder(self.enc_layer, num_layers=conf.num_layers_xmit)
         self.embedding_encoder = nn.Sequential(nn.Linear(1, conf.d_model), 
                                                self.activation, 
                                                nn.Linear(conf.d_model,conf.d_model), 
@@ -56,15 +47,16 @@ class FeedbackCode(nn.Module):
         self.pos_encoding_encoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
                                                        max_len=conf.knowledge_vec_len)
+        self.enc_layer = TransformerEncoderLayer(d_model=conf.d_model, 
+                                                 nhead=conf.n_heads, 
+                                                 norm_first=True, 
+                                                 dropout=conf.dropout, 
+                                                 dim_feedforward=conf.scaling_factor*conf.d_model,
+                                                 activation=self.activation)
+        self.encoder = TransformerEncoder(self.enc_layer, num_layers=conf.num_layers_xmit)
         self.enc_raw_output = nn.Linear(self.d_model, 2*self.M_t)
 
         # Set up the receive side decoder.
-        self.dec_layer = TransformerEncoderLayer(d_model=conf.d_model,
-                                                 nhead=conf.n_heads,
-                                                 norm_first=True,
-                                                 dropout=conf.dropout,
-                                                 activation=self.activation)
-        self.decoder = TransformerEncoder(self.dec_layer, num_layers=conf.num_layers_recv)
         self.embedding_decoder = nn.Sequential(nn.Linear(1, conf.d_model), 
                                                self.activation, 
                                                nn.Linear(conf.d_model,conf.d_model), 
@@ -72,6 +64,12 @@ class FeedbackCode(nn.Module):
         self.pos_encoding_decoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
                                                        max_len=2*self.N)
+        self.dec_layer = TransformerEncoderLayer(d_model=conf.d_model,
+                                                 nhead=conf.n_heads,
+                                                 norm_first=True,
+                                                 dropout=conf.dropout,
+                                                 activation=self.activation)
+        self.decoder = TransformerEncoder(self.dec_layer, num_layers=conf.num_layers_recv)
         self.dec_raw_output = nn.Linear(self.d_model, 2**self.K)
 
         # Power weighting-related parameters.
@@ -117,6 +115,11 @@ class FeedbackCode(nn.Module):
                 knowledge_vecs = self.make_knowledge_vecs(bitstreams, H_real, H_imag, fb_info=self.recvd_y_tilde)
 
         dec_out = self.decode_received_symbols(self.recvd_y)
+        # print(f'Transmit Power for N={self.N} channel uses for B={self.batch_size} bitstreams:')
+        # print(np.array(self.transmit_power_tracking).round(3).T)
+        # print(f'Average Power per Channel Use:')
+        # print(np.mean(self.transmit_power_tracking,axis=1).round(3))
+        # print()
 
         return dec_out
 
@@ -205,7 +208,7 @@ class FeedbackCode(nn.Module):
     def one_hot_to_bits(self, onehots):
         x = torch.argmax(onehots,dim=1)
         # Adapted from https://stackoverflow.com/questions/22227595/convert-integer-to-binary-array-with-suitable-padding
-        bin_representations = (((x[:,None] & (1 << torch.arange(self.K).to(self.device).flip(0)))) > 0).int()
+        bin_representations = (((x[:,None] & (1 << torch.arange(self.K,requires_grad=False).to(self.device).flip(0)))) > 0).int()
 
         return bin_representations
 

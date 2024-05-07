@@ -12,13 +12,13 @@ class Config():
         self.K = 5 # length of bitstream
         self.num_xmit_chans = 2
         self.knowledge_vec_len = self.K + 2*self.num_xmit_chans + 2*self.N - 2
-        self.snr_ff = -1 # in dB
-        self.snr_fb = -1 # in dB
+        self.snr_ff = 1 # in dB
+        self.snr_fb = 20 # in dB
         self.noise_pwr_ff = 10**(-self.snr_ff/10)
         self.noise_pwr_fb = 10**(-self.snr_fb/10)
 
         # Model settings
-        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(f'device: {self.device}')
         self.max_len_enc = self.N
         self.num_layers_xmit = 2 
@@ -28,12 +28,12 @@ class Config():
         self.scaling_factor = 4
         self.dropout = 0.0
 
-        self.num_epochs = 100
-        self.batch_size = 500
-        self.num_training_samps = int(1e5)
+        self.num_epochs = 10
+        self.batch_size = 100 
+        self.num_training_samps = int(10000)
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size
         self.grad_clip = 1
-        self.num_valid_samps = int(5e3)
+        self.num_valid_samps = int(10000)
         self.pooling_type = 'avg'
 
         self.use_tensorboard = True

@@ -70,7 +70,7 @@ if __name__=='__main__':
 
     num_epochs = conf.num_epochs 
     grad_clip = conf.grad_clip 
-    optimizer = torch.optim.AdamW(fbc.parameters(), lr=.0001, weight_decay=.01)
+    optimizer = torch.optim.AdamW(fbc.parameters(), lr=.001, weight_decay=.01)
     loss_fn = nn.CrossEntropyLoss()
     bit_errors = []
     block_errors = []
@@ -81,12 +81,19 @@ if __name__=='__main__':
         for i in range(conf.num_iters_per_epoch):
             bitstreams = torch.randint(0,2,(conf.batch_size, 1, conf.K)).to(device)
             H_real, H_imag = fbc.generate_split_channel_gains_rayleigh(shape=(conf.batch_size, conf.num_xmit_chans))
-            feedback_info = -1 * torch.ones((conf.batch_size, 1, 2*conf.N - 2)).to(device)
+            feedback_info = -1000 * torch.ones((conf.batch_size, 1, 2*conf.N - 2)).to(device)
 
             optimizer.zero_grad()
             output = fbc(bitstreams, H_real, H_imag)
             b = bitstreams.int().permute(0,2,1).squeeze(-1)
             b_one_hot = fbc.bits_to_one_hot(b).float()
+            # s = nn.Softmax()
+            # for o, b in zip(output, b_one_hot):
+            #     print(o)
+            #     print(b)
+            #     print(torch.sum())
+            #     print()
+            # sys.exit()
             loss = loss_fn(output, b_one_hot)
 
             loss.backward()
