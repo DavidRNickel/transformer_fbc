@@ -32,18 +32,18 @@ class FeedbackCode(nn.Module):
         self.batch_size = conf.batch_size
         self.N = conf.N
         self.K = conf.K
-        self.M_t = conf.num_xmit_chans
         self.noise_pwr_ff = conf.noise_pwr_ff
         self.noise_pwr_fb = conf.noise_pwr_fb
         self.training = True
-        self.activation = nn.GELU()
+        self.gelu = nn.GELU()
+        self.relu = nn.ReLU()
+        self.tanh = nn.Tanh()
         self.pooling_type = conf.pooling_type
 
         # Set up the transmit side encoder.
         self.embedding_encoder = nn.Sequential(nn.Linear(1, conf.d_model), 
-                                               self.activation, 
-                                               nn.Linear(conf.d_model,conf.d_model), 
-                                               self.activation)
+                                               self.relu, 
+                                               nn.Linear(conf.d_model,conf.d_model))
         self.pos_encoding_encoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
                                                        max_len=conf.knowledge_vec_len)
@@ -52,28 +52,41 @@ class FeedbackCode(nn.Module):
                                                  norm_first=True, 
                                                  dropout=conf.dropout, 
                                                  dim_feedforward=conf.scaling_factor*conf.d_model,
-                                                 activation=self.activation)
+                                                 activation=self.gelu,
+                                                 batch_first=True)
         self.encoder = TransformerEncoder(self.enc_layer, num_layers=conf.num_layers_xmit)
-        self.enc_raw_output = nn.Linear(self.d_model, 2*self.M_t)
+        for name, param in self.encoder.named_parameters():
+            if 'weight' in name and param.data.dim() == 2:
+                nn.init.kaiming_uniform_(param)
+        self.enc_pool_dense = nn.Linear(self.d_model, self.d_model)
+        nn.init.kaiming_uniform_(self.enc_pool_dense.weight)
+        self.enc_raw_output = nn.Linear(self.d_model, 1)
+        nn.init.kaiming_uniform_(self.enc_raw_output.weight)
 
         # Set up the receive side decoder.
         self.embedding_decoder = nn.Sequential(nn.Linear(1, conf.d_model), 
-                                               self.activation, 
-                                               nn.Linear(conf.d_model,conf.d_model), 
-                                               self.activation)
+                                               self.relu, 
+                                               nn.Linear(conf.d_model,conf.d_model))
         self.pos_encoding_decoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
-                                                       max_len=2*self.N)
+                                                       max_len=self.N)
         self.dec_layer = TransformerEncoderLayer(d_model=conf.d_model,
                                                  nhead=conf.n_heads,
                                                  norm_first=True,
                                                  dropout=conf.dropout,
-                                                 activation=self.activation)
+                                                 activation=self.gelu,
+                                                 batch_first=True)
         self.decoder = TransformerEncoder(self.dec_layer, num_layers=conf.num_layers_recv)
+        for name, param in self.decoder.named_parameters():
+            if 'weight' in name and param.data.dim() == 2:
+                nn.init.kaiming_uniform_(param)
+        self.dec_pool_dense = nn.Linear(self.d_model, self.d_model)
+        nn.init.kaiming_uniform_(self.dec_pool_dense.weight)
         self.dec_raw_output = nn.Linear(self.d_model, 2**self.K)
+        nn.init.kaiming_uniform_(self.dec_raw_output.weight)
 
         # Power weighting-related parameters.
-        self.weight_power = torch.nn.Parameter(torch.Tensor(self.N), requires_grad=True )
+        self.weight_power = torch.nn.Parameter(torch.Tensor(self.N), requires_grad=True)
         self.weight_power.data.uniform_(1., 1.)
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N)/torch.sum(self.weight_power**2))
         self.transmit_power_tracking = []
@@ -87,8 +100,8 @@ class FeedbackCode(nn.Module):
     #
     # forward() calls both encoder and decoder. For evaluation, it is expected that the user
     # has provided forward & feedback noise 2D matrices, as well as a 
-    def forward(self, bitstreams, H_real, H_imag, noise_ff=None, noise_fb=None):
-        knowledge_vecs = self.make_knowledge_vecs(bitstreams, H_real, H_imag)
+    def forward(self, bitstreams, noise_ff=None, noise_fb=None):
+        knowledge_vecs = self.make_knowledge_vecs(bitstreams)
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N) / (self.weight_power**2).sum())
         if self.training:
             noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.N)).to(self.device)
@@ -96,25 +109,32 @@ class FeedbackCode(nn.Module):
         else:
             noise_ff = noise_ff
             noise_fb = noise_fb
-        self.recvd_y = torch.empty((self.batch_size, self.N), dtype=torch.cfloat).to(self.device)
-        self.recvd_y_tilde = []
+        self.recvd_y = torch.empty((self.batch_size, self.N)).to(self.device)
+        # self.recvd_y_tilde = []
         self.transmit_power_tracking = []
 
-        # Transmit side
         for t in range(self.N):
+            # Transmit side
             x = self.transmit_bits_from_encoder(knowledge_vecs, t)
+            # print(x)
 
-            # Receive side. y_tilde~batch_size x 1
-            y_tilde = self.process_bits_at_receiver(x, t, H_real, H_imag, noise_ff, noise_fb)
-            self.recvd_y_tilde.append(torch.view_as_real(y_tilde).detach().clone().cpu().numpy())
+            y_tilde = self.process_bits_at_receiver(x, t, noise_ff, noise_fb)
+            # print(y_tilde)
+
+            # TODO: this probably has something to do with it
+            # MAYBE: do if t==0: ryt = y_tilde; else: ryt = t.cat(ryt,y_tilde)
+            if t!=0:
+                self.recvd_y_tilde = torch.hstack((self.recvd_y_tilde,y_tilde))
+            else:
+                self.recvd_y_tilde = y_tilde
+            # self.recvd_y_tilde.append(y_tilde.detach().clone().cpu().numpy())
+            # print(self.recvd_y_tilde)
             
-            # Update the knowledge vectors
-            H_real, H_imag = self.generate_split_channel_gains_rayleigh(shape=(self.batch_size, self.M_t))
-
             if t < self.N-1: # don't need to update the feedback information after the last transmission.
-                knowledge_vecs = self.make_knowledge_vecs(bitstreams, H_real, H_imag, fb_info=self.recvd_y_tilde)
+                knowledge_vecs = self.make_knowledge_vecs(bitstreams, fb_info=self.recvd_y_tilde)
 
         dec_out = self.decode_received_symbols(self.recvd_y)
+        # print(dec_out);sys.exit()
         # print(f'Transmit Power for N={self.N} channel uses for B={self.batch_size} bitstreams:')
         # print(np.array(self.transmit_power_tracking).round(3).T)
         # print(f'Average Power per Channel Use:')
@@ -125,26 +145,28 @@ class FeedbackCode(nn.Module):
 
     #
     #
-    def make_knowledge_vecs(self, b, Hr, Hi, fb_info=None):
+    def make_knowledge_vecs(self, b, fb_info=None):
         if fb_info is None:
-            fbi = -1000 * torch.ones((self.batch_size, 1, 2*self.N -2)).to(self.device)
+            fbi = -100 * torch.ones((self.batch_size, 1, self.N - 1)).to(self.device)
         else:
-            with torch.no_grad():
-                fbi = torch.tensor(np.hstack(fb_info)).to(self.device)
-                fbi = F.pad(fbi, pad=(0,2*self.N - 2 - fbi.shape[1]), value=-1000).unsqueeze(1)
-        H = torch.cat((Hr,Hi),axis=1).unsqueeze(1)
+            # fbi = torch.tensor(np.hstack(fb_info)).to(self.device)
+            # print(fb_info)
+            # fbi = torch.hstack(fb_info)
+            fbi = F.pad(fb_info, pad=(0,self.N - 1 - fb_info.shape[1]), value=-100).unsqueeze(1)
 
-        return torch.cat((b, H, fbi),axis=2).to(self.device)
+        return torch.cat((b, fbi),axis=2)
+        # return torch.cat((100*torch.ones(self.batch_size).view(self.batch_size, 1, 1).to(self.device), b, fbi),axis=2)
 
     #
     # Do all the transmissions from the encoder side to the decoder side.
-    def transmit_bits_from_encoder(self, x, t):
+    def transmit_bits_from_encoder(self, k, t):
         # The transpose stuff is because I did something wrong earlier on and don't want to change
         # up all the parts of the code that work correctly...
-        x = self.embedding_encoder(torch.transpose(x,1,2))
+        x = self.embedding_encoder(torch.transpose(k,1,2))
         x = self.pos_encoding_encoder(x)
-        x = self.encoder(x)
-        x = self.pooling(x)
+        # x = self.encoder(x)
+        x = self.encoder(x, src_key_padding_mask = k.squeeze(1)==-100)
+        x = self.pooling(x, self.enc_pool_dense)
         x = self.enc_raw_output(x).squeeze(1)
         x = self.normalize_transmit_signal_power(x, t)
 
@@ -152,46 +174,44 @@ class FeedbackCode(nn.Module):
 
     #
     # Process the received symbols at the decoder side. NOT THE DECODING STEP!!!
-    def process_bits_at_receiver(self, x, t, H_real, H_imag, noise_ff, noise_fb):
-        x = x[:,::2] + 1j*x[:,1::2]
+    def process_bits_at_receiver(self, x, t, noise_ff, noise_fb):
+        x = x.view(-1,1)
         self.transmit_power_tracking.append(torch.sum(torch.abs(x)**2,axis=1).detach().clone().cpu().numpy())
-        H = H_real + 1j*H_imag
-        y =  H * x + noise_ff[:,t].view(-1,1)
-        y = y.sum(1)
-        y_tilde = y + noise_fb[:,t]
-        self.recvd_y[:,t] = y
+        y =  x + noise_ff[:,t].view(-1,1)
+        y_tilde = y + noise_fb[:,t].view(-1,1)
+        self.recvd_y[:,t] = y.squeeze()
 
         return y_tilde
 
     #
     # Actually decode all of the received symbols.
     def decode_received_symbols(self,y):
-        y = torch.cat((y.real, y.imag),axis=1).unsqueeze(1)
+        y = y.unsqueeze(1)
         y = self.embedding_decoder(torch.transpose(y,1,2))
         y = self.pos_encoding_decoder(y)
         y = self.decoder(y)
-        y = self.pooling(y)
+        y = self.pooling(y, self.dec_pool_dense)
+        y = self.dec_raw_output(y.squeeze(1))
 
-        return self.dec_raw_output(y.squeeze(1))
+        return self.tanh(y)
 
     #
     #
-    def pooling(self,z):
+    def pooling(self, z, dense):
         if self.pooling_type == 'avg':
-            return z[:,].mean(1)
+            out = z[:,].mean(1)
         elif self.pooling_type == 'max':
-            return torch.max(z[:,],1)[0]
+            out = torch.max(z[:,],1)[0]
+        elif self.pooling_type == 'first':
+            out = z[:,0]
+        out = dense(out)
+
+        return self.tanh(out)
 
     #
     # Make AWGN
     def generate_awgn(self,shape, noise_power):
-        return sqrt(noise_power) * torch.randn(size=shape,dtype=torch.cfloat).to(self.device)
-
-    #
-    # Make Rayleigh fading channels.
-    def generate_split_channel_gains_rayleigh(self,shape):
-            chan = self.generate_awgn(shape=shape, noise_power=1)
-            return chan.real, chan.imag
+        return sqrt(noise_power) * torch.randn(size=shape).to(self.device)
 
     #
     # Take the input bitstreams and map them to their one-hot representation.
@@ -232,7 +252,7 @@ class FeedbackCode(nn.Module):
         x = torch.tanh(x)
         x = self.normalization(x, t)
 
-        return self.weight_power_normalized[t] * (1/sqrt(2*self.M_t)) * x 
+        return self.weight_power_normalized[t] * x 
 
     #
     # Normalize the batch.
@@ -248,4 +268,5 @@ class FeedbackCode(nn.Module):
                 self.mean_batch[t_idx] = mean_batch
                 self.std_batch[t_idx] = std_batch
                 outputs = (inputs - mean_batch) / std_batch
+
         return outputs

@@ -28,9 +28,8 @@ def test_model(test_data, model, conf):
             bits = test_data['bits'][batch_size*i : batch_size*(i+1)].unsqueeze(1).to(device)
             noise_ff = test_data['noise_ff'][batch_size*i : batch_size*(i+1)].to(device)
             noise_fb = test_data['noise_fb'][batch_size*i : batch_size*(i+1)].to(device)
-            H_real, H_imag = fbc.generate_split_channel_gains_rayleigh(shape=(conf.batch_size, conf.num_xmit_chans))
 
-            output = model(bits, H_real, H_imag, noise_ff, noise_fb)
+            output = model(bits, noise_ff, noise_fb)
             bit_estimates = model.one_hot_to_bits(output).detach().clone().cpu().numpy().astype(np.bool_)
             ber_tmp, bler_tmp = model.calc_error_rates(bit_estimates, bits.squeeze(1).detach().clone().cpu().numpy().astype(np.bool_))
 
@@ -70,30 +69,21 @@ if __name__=='__main__':
 
     num_epochs = conf.num_epochs 
     grad_clip = conf.grad_clip 
-    optimizer = torch.optim.AdamW(fbc.parameters(), lr=.001, weight_decay=.01)
+    optimizer = torch.optim.AdamW(fbc.parameters(), lr=.0005, weight_decay=.01)
     loss_fn = nn.CrossEntropyLoss()
     bit_errors = []
     block_errors = []
-    # pwr_average = []
     for epoch in range(num_epochs):
         fbc.train()
         losses = []
         for i in range(conf.num_iters_per_epoch):
             bitstreams = torch.randint(0,2,(conf.batch_size, 1, conf.K)).to(device)
-            H_real, H_imag = fbc.generate_split_channel_gains_rayleigh(shape=(conf.batch_size, conf.num_xmit_chans))
-            feedback_info = -1000 * torch.ones((conf.batch_size, 1, 2*conf.N - 2)).to(device)
+            feedback_info = -100 * torch.ones((conf.batch_size, 1, conf.N - 1)).to(device)
 
             optimizer.zero_grad()
-            output = fbc(bitstreams, H_real, H_imag)
+            output = fbc(bitstreams)
             b = bitstreams.int().permute(0,2,1).squeeze(-1)
             b_one_hot = fbc.bits_to_one_hot(b).float()
-            # s = nn.Softmax()
-            # for o, b in zip(output, b_one_hot):
-            #     print(o)
-            #     print(b)
-            #     print(torch.sum())
-            #     print()
-            # sys.exit()
             loss = loss_fn(output, b_one_hot)
 
             loss.backward()
@@ -104,14 +94,15 @@ if __name__=='__main__':
             if i % 100 == 0:
                 print(f'Epoch (iter): {epoch} ({i}), Loss: {loss.item()}')
     
-        print(f'\nEpoch Summary')
-        print('====================================================')
-        print(f'Epoch: {epoch}, Average loss: {np.mean(losses)}')
-        print('====================================================\n')
-
         ber, bler, _ = test_model(test_data=test_data, model=fbc, conf=conf)
         bit_errors.append(ber)
         block_errors.append(bler)
+
+        print(f'\nEpoch Summary')
+        print('====================================================')
+        print(f'Epoch: {epoch}, Average loss: {np.mean(losses)}')
+        print(f'BER: {ber}, BLER {bler}')
+        print('====================================================\n')
     
     print(f'ber: {np.array(bit_errors)}')
     print(f'bler: {np.array(block_errors)}')
