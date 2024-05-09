@@ -69,7 +69,7 @@ if __name__=='__main__':
 
     num_epochs = conf.num_epochs 
     grad_clip = conf.grad_clip 
-    optimizer = torch.optim.AdamW(fbc.parameters(), lr=.0005, weight_decay=.01)
+    optimizer = torch.optim.AdamW(fbc.parameters(), lr=.001, weight_decay=.01)
     loss_fn = nn.CrossEntropyLoss()
     bit_errors = []
     block_errors = []

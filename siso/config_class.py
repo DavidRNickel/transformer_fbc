@@ -29,12 +29,12 @@ class Config():
         self.scaling_factor = 4
         self.dropout = 0.0
 
-        self.num_epochs = 10
+        self.num_epochs = 100
         self.batch_size = 1000
-        self.num_training_samps = int(100000)
+        self.num_training_samps = int(1E7)
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size
         self.grad_clip = 1
-        self.num_valid_samps = int(100000)
+        self.num_valid_samps = int(10000)
         self.pooling_type = 'first'
 
         self.use_tensorboard = True
