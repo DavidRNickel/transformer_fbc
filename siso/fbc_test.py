@@ -41,9 +41,11 @@ class FeedbackCode(nn.Module):
         self.pooling_type = conf.pooling_type
 
         # Set up the transmit side encoder.
-        self.embedding_encoder = nn.Sequential(nn.Linear(1, conf.d_model), 
+        self.embedding_encoder = nn.Sequential(nn.Linear(1, 96), 
                                                self.relu, 
-                                               nn.Linear(conf.d_model,conf.d_model))
+                                               nn.Linear(96,96),
+                                               self.relu,
+                                               nn.Linear(96,self.d_model))
         self.pos_encoding_encoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
                                                        max_len=conf.knowledge_vec_len)
@@ -64,9 +66,10 @@ class FeedbackCode(nn.Module):
         nn.init.kaiming_uniform_(self.enc_raw_output.weight)
 
         # Set up the receive side decoder.
-        self.embedding_decoder = nn.Sequential(nn.Linear(1, conf.d_model), 
+        self.embedding_decoder = nn.Sequential(nn.Linear(1, 96),
                                                self.relu, 
-                                               nn.Linear(conf.d_model,conf.d_model))
+                                               nn.Linear(96,96),
+                                               nn.Linear(96,conf.d_model))
         self.pos_encoding_decoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
                                                        max_len=self.N)
@@ -149,9 +152,6 @@ class FeedbackCode(nn.Module):
         if fb_info is None:
             fbi = -100 * torch.ones((self.batch_size, 1, self.N - 1)).to(self.device)
         else:
-            # fbi = torch.tensor(np.hstack(fb_info)).to(self.device)
-            # print(fb_info)
-            # fbi = torch.hstack(fb_info)
             fbi = F.pad(fb_info, pad=(0,self.N - 1 - fb_info.shape[1]), value=-100).unsqueeze(1)
 
         return torch.cat((b, fbi),axis=2)
@@ -235,9 +235,15 @@ class FeedbackCode(nn.Module):
     #
     #
     def calc_error_rates(self, bit_estimates, bits):
-        not_eq = np.not_equal(bit_estimates, bits)
-        ber = not_eq.mean()
-        bler = (not_eq.sum(1)>0).mean()
+        if not isinstance(bits,np.ndarray):
+            not_eq = torch.not_equal(bit_estimates, bits)
+            ber = not_eq.float().mean()
+            bler = (not_eq.sum(1)>0).float().mean()
+        else:
+            not_eq = np.not_equal(bit_estimates, bits)
+            ber = not_eq.mean()
+            bler = (not_eq.sum(1)>0).mean()
+
 
         return ber, bler
 

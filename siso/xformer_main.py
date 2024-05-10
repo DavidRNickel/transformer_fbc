@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-# from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
 import datetime
@@ -52,11 +52,11 @@ if __name__=='__main__':
     fbc = FeedbackCode(conf).to(device)
 
     # Set up TensorBoard for logging purposes.
-    # writer = None
-    # if conf.use_tensorboard:
-    #     log_folder = 'logs/fit/' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-    #     writer = SummaryWriter()
-    # writer = SummaryWriter()
+    writer = None
+    if conf.use_tensorboard:
+        log_folder = 'logs/fit/' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+        writer = SummaryWriter()
+    writer = SummaryWriter()
 
     n_valid_samps = conf.num_valid_samps
     n_valid_iters = n_valid_samps // conf.batch_size
@@ -88,15 +88,25 @@ if __name__=='__main__':
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(fbc.parameters(), grad_clip)
-            losses.append(loss.item())
+            losses.append(L:=loss.item())
             optimizer.step()
+
+            bit_estimates = fbc.one_hot_to_bits(output).bool()
+            print(bit_estimates.shape,bitstreams.shape);sys.exit()
+            ber, bler = fbc.calc_error_rates(bit_estimates, bitstreams.bool())
 
             if i % 100 == 0:
                 print(f'Epoch (iter): {epoch} ({i}), Loss: {loss.item()}')
+
+            writer.add_scalar('loss/train/BER',ber,i)
+            writer.add_scalar('loss/train/BLER',bler,i)
+            writer.add_scalar('loss/train/loss',L,i)
     
         ber, bler, _ = test_model(test_data=test_data, model=fbc, conf=conf)
         bit_errors.append(ber)
         block_errors.append(bler)
+        writer.add_scalar('loss/test/BER',ber,epoch)
+        writer.add_scalar('loss/test/BLER',bler,epoch)
 
         print(f'\nEpoch Summary')
         print('====================================================')
