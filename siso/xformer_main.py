@@ -30,6 +30,7 @@ def test_model(test_data, model, conf):
             noise_fb = test_data['noise_fb'][batch_size*i : batch_size*(i+1)].to(device)
 
             output = model(bits, noise_ff, noise_fb)
+            # output = model(bits)
             bit_estimates = model.one_hot_to_bits(output).detach().clone().cpu().numpy().astype(np.bool_)
             ber_tmp, bler_tmp = model.calc_error_rates(bit_estimates, bits.squeeze(1).detach().clone().cpu().numpy().astype(np.bool_))
 
@@ -92,15 +93,18 @@ if __name__=='__main__':
             optimizer.step()
 
             bit_estimates = fbc.one_hot_to_bits(output).bool()
-            print(bit_estimates.shape,bitstreams.shape);sys.exit()
-            ber, bler = fbc.calc_error_rates(bit_estimates, bitstreams.bool())
+            # print(bit_estimates.shape,bitstreams.shape);sys.exit()
+            ber, bler = fbc.calc_error_rates(bit_estimates, bitstreams.squeeze(1).bool())
 
             if i % 100 == 0:
                 print(f'Epoch (iter): {epoch} ({i}), Loss: {loss.item()}')
+                # print(bitstreams[:3].squeeze(1))
+                # print(bit_estimates[:3].int())
 
-            writer.add_scalar('loss/train/BER',ber,i)
-            writer.add_scalar('loss/train/BLER',bler,i)
-            writer.add_scalar('loss/train/loss',L,i)
+            ei = (epoch+1)*i
+            writer.add_scalar('loss/train/BER',ber,ei)
+            writer.add_scalar('loss/train/BLER',bler,ei)
+            writer.add_scalar('loss/train/loss',L,ei)
     
         ber, bler, _ = test_model(test_data=test_data, model=fbc, conf=conf)
         bit_errors.append(ber)

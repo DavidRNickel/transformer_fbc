@@ -106,30 +106,27 @@ class FeedbackCode(nn.Module):
     def forward(self, bitstreams, noise_ff=None, noise_fb=None):
         knowledge_vecs = self.make_knowledge_vecs(bitstreams)
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N) / (self.weight_power**2).sum())
-        if self.training:
+        if noise_ff is not None:
             noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.N)).to(self.device)
             noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.N)).to(self.device)
         else:
             noise_ff = noise_ff
             noise_fb = noise_fb
         self.recvd_y = torch.empty((self.batch_size, self.N)).to(self.device)
-        # self.recvd_y_tilde = []
         self.transmit_power_tracking = []
 
         for t in range(self.N):
             # Transmit side
             x = self.transmit_bits_from_encoder(knowledge_vecs, t)
-            # print(x)
 
             y_tilde = self.process_bits_at_receiver(x, t, noise_ff, noise_fb)
-            # print(y_tilde)
 
-            # TODO: this probably has something to do with it
-            # MAYBE: do if t==0: ryt = y_tilde; else: ryt = t.cat(ryt,y_tilde)
             if t!=0:
                 self.recvd_y_tilde = torch.hstack((self.recvd_y_tilde,y_tilde))
+                self.prev_xmit_signal = torch.hstack((self.prev_xmit_signal, x.view(-1,1)))
             else:
                 self.recvd_y_tilde = y_tilde
+                self.prev_xmit_signal = x.view(-1,1)
             # self.recvd_y_tilde.append(y_tilde.detach().clone().cpu().numpy())
             # print(self.recvd_y_tilde)
             
@@ -148,14 +145,16 @@ class FeedbackCode(nn.Module):
 
     #
     #
-    def make_knowledge_vecs(self, b, fb_info=None):
+    def make_knowledge_vecs(self, b, fb_info=None, prev_x=None):
         if fb_info is None:
             fbi = -100 * torch.ones((self.batch_size, 1, self.N - 1)).to(self.device)
+            px = -100 * torch.ones((self.batch_size, 1, self.N - 1)).to(self.device)
         else:
-            fbi = F.pad(fb_info, pad=(0,self.N - 1 - fb_info.shape[1]), value=-100).unsqueeze(1)
+            fbi = F.pad(fb_info, pad=(0, self.N - 1 - fb_info.shape[1]), value=-100).unsqueeze(1)
+            px = F.pad(prev_x, pad=(0, self.N - 1 - prev_x.shape[1]), value=-100).unsqueeze(1)
 
-        return torch.cat((b, fbi),axis=2)
-        # return torch.cat((100*torch.ones(self.batch_size).view(self.batch_size, 1, 1).to(self.device), b, fbi),axis=2)
+        # return torch.cat((b, fbi),axis=2)
+        return torch.cat((b, px, fbi),axis=2)
 
     #
     # Do all the transmissions from the encoder side to the decoder side.
@@ -164,7 +163,6 @@ class FeedbackCode(nn.Module):
         # up all the parts of the code that work correctly...
         x = self.embedding_encoder(torch.transpose(k,1,2))
         x = self.pos_encoding_encoder(x)
-        # x = self.encoder(x)
         x = self.encoder(x, src_key_padding_mask = k.squeeze(1)==-100)
         x = self.pooling(x, self.enc_pool_dense)
         x = self.enc_raw_output(x).squeeze(1)

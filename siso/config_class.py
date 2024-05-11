@@ -11,8 +11,8 @@ class Config():
         self.N = 9 # number channel usees
         self.K = 3 # length of bitstream
         # +1 for start of sequence token, -1 since we only need N-1 feedback info slots.
-        # self.knowledge_vec_len = 1 + self.K + self.N - 1
-        self.knowledge_vec_len = self.K + self.N - 1
+        # self.knowledge_vec_len = self.K + self.N - 1
+        self.knowledge_vec_len = self.K + 2*(self.N - 1)
         self.snr_ff = 2 # in dB
         self.snr_fb = 20 # in dB
         self.noise_pwr_ff = 10**(-self.snr_ff/10)
@@ -22,7 +22,7 @@ class Config():
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(f'device: {self.device}')
         self.max_len_enc = self.N
-        self.num_layers_xmit = 3 
+        self.num_layers_xmit = 2 
         self.num_layers_recv = 3
         self.n_heads = 1
         self.d_model = 32 
