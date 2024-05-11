@@ -106,7 +106,7 @@ class FeedbackCode(nn.Module):
     def forward(self, bitstreams, noise_ff=None, noise_fb=None):
         knowledge_vecs = self.make_knowledge_vecs(bitstreams)
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N) / (self.weight_power**2).sum())
-        if noise_ff is not None:
+        if noise_ff is None:
             noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.N)).to(self.device)
             noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.N)).to(self.device)
         else:
@@ -127,19 +127,11 @@ class FeedbackCode(nn.Module):
             else:
                 self.recvd_y_tilde = y_tilde
                 self.prev_xmit_signal = x.view(-1,1)
-            # self.recvd_y_tilde.append(y_tilde.detach().clone().cpu().numpy())
-            # print(self.recvd_y_tilde)
             
             if t < self.N-1: # don't need to update the feedback information after the last transmission.
-                knowledge_vecs = self.make_knowledge_vecs(bitstreams, fb_info=self.recvd_y_tilde)
+                knowledge_vecs = self.make_knowledge_vecs(bitstreams, fb_info=self.recvd_y_tilde, prev_x=self.prev_xmit_signal)
 
         dec_out = self.decode_received_symbols(self.recvd_y)
-        # print(dec_out);sys.exit()
-        # print(f'Transmit Power for N={self.N} channel uses for B={self.batch_size} bitstreams:')
-        # print(np.array(self.transmit_power_tracking).round(3).T)
-        # print(f'Average Power per Channel Use:')
-        # print(np.mean(self.transmit_power_tracking,axis=1).round(3))
-        # print()
 
         return dec_out
 
@@ -149,12 +141,16 @@ class FeedbackCode(nn.Module):
         if fb_info is None:
             fbi = -100 * torch.ones((self.batch_size, 1, self.N - 1)).to(self.device)
             px = -100 * torch.ones((self.batch_size, 1, self.N - 1)).to(self.device)
+            q = torch.cat((px,fbi),axis=2)
         else:
-            fbi = F.pad(fb_info, pad=(0, self.N - 1 - fb_info.shape[1]), value=-100).unsqueeze(1)
-            px = F.pad(prev_x, pad=(0, self.N - 1 - prev_x.shape[1]), value=-100).unsqueeze(1)
+            q = torch.hstack((prev_x,fb_info))
+            q = F.pad(q, pad=(0, 2*(self.N - 1) - q.shape[1]), value=-100).unsqueeze(1)
+            # fbi = F.pad(fb_info, pad=(0, self.N - 1 - fb_info.shape[1]), value=-100).unsqueeze(1)
+            # px = F.pad(prev_x, pad=(0, self.N - 1 - prev_x.shape[1]), value=-100).unsqueeze(1)
 
         # return torch.cat((b, fbi),axis=2)
-        return torch.cat((b, px, fbi),axis=2)
+        # return torch.cat((b, px, fbi),axis=2)
+        return torch.cat((b, q),axis=2)
 
     #
     # Do all the transmissions from the encoder side to the decoder side.

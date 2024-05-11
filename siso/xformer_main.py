@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.utils.tensorboard import SummaryWriter
+
 
 import numpy as np
 import datetime
@@ -52,12 +52,14 @@ if __name__=='__main__':
 
     fbc = FeedbackCode(conf).to(device)
 
-    # Set up TensorBoard for logging purposes.
-    writer = None
     if conf.use_tensorboard:
-        log_folder = 'logs/fit/' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+        from torch.utils.tensorboard import SummaryWriter
+        # Set up TensorBoard for logging purposes.
+        writer = None
+        if conf.use_tensorboard:
+            log_folder = 'logs/fit/' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+            writer = SummaryWriter()
         writer = SummaryWriter()
-    writer = SummaryWriter()
 
     n_valid_samps = conf.num_valid_samps
     n_valid_iters = n_valid_samps // conf.batch_size
@@ -93,24 +95,23 @@ if __name__=='__main__':
             optimizer.step()
 
             bit_estimates = fbc.one_hot_to_bits(output).bool()
-            # print(bit_estimates.shape,bitstreams.shape);sys.exit()
             ber, bler = fbc.calc_error_rates(bit_estimates, bitstreams.squeeze(1).bool())
 
             if i % 100 == 0:
                 print(f'Epoch (iter): {epoch} ({i}), Loss: {loss.item()}')
-                # print(bitstreams[:3].squeeze(1))
-                # print(bit_estimates[:3].int())
 
-            ei = (epoch+1)*i
-            writer.add_scalar('loss/train/BER',ber,ei)
-            writer.add_scalar('loss/train/BLER',bler,ei)
-            writer.add_scalar('loss/train/loss',L,ei)
+            if conf.use_tensorboard:
+                ei = (epoch+1)*(i+i)
+                writer.add_scalar('loss/train/BER', ber, ei)
+                writer.add_scalar('loss/train/BLER', bler, ei)
+                writer.add_scalar('loss/train/loss', L, ei)
     
         ber, bler, _ = test_model(test_data=test_data, model=fbc, conf=conf)
         bit_errors.append(ber)
         block_errors.append(bler)
-        writer.add_scalar('loss/test/BER',ber,epoch)
-        writer.add_scalar('loss/test/BLER',bler,epoch)
+        if conf.use_tensorboard:
+            writer.add_scalar('loss/test/BER',ber,(epoch+1))
+            writer.add_scalar('loss/test/BLER',bler,(epoch+1))
 
         print(f'\nEpoch Summary')
         print('====================================================')
