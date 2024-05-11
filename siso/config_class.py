@@ -13,7 +13,7 @@ class Config():
         # +1 for start of sequence token, -1 since we only need N-1 feedback info slots.
         # self.knowledge_vec_len = self.K + self.N - 1
         self.knowledge_vec_len = self.K + 2*(self.N - 1)
-        self.snr_ff = 2 # in dB
+        self.snr_ff = 1 # in dB
         self.snr_fb = 20 # in dB
         self.noise_pwr_ff = 10**(-self.snr_ff/10)
         self.noise_pwr_fb = 10**(-self.snr_fb/10)
@@ -30,10 +30,10 @@ class Config():
         self.dropout = 0.0
 
         self.num_epochs = 100
-        self.batch_size = 1000
-        self.num_training_samps = int(1E6)
+        self.batch_size = 8192
+        self.num_training_samps = int(self.batch_size*1E5)
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size
-        self.grad_clip = .5
+        self.grad_clip = 1
         self.num_valid_samps = int(1e5)
         self.pooling_type = 'first'
 

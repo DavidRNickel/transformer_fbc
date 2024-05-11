@@ -101,7 +101,7 @@ if __name__=='__main__':
                 print(f'Epoch (iter): {epoch} ({i}), Loss: {loss.item()}')
 
             if conf.use_tensorboard:
-                ei = (epoch+1)*(i+i)
+                ei = (epoch+1)*(i+1)
                 writer.add_scalar('loss/train/BER', ber, ei)
                 writer.add_scalar('loss/train/BLER', bler, ei)
                 writer.add_scalar('loss/train/loss', L, ei)
