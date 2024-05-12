@@ -54,7 +54,7 @@ class FeedbackCode(nn.Module):
                                                  norm_first=True, 
                                                  dropout=conf.dropout, 
                                                  dim_feedforward=conf.scaling_factor*conf.d_model,
-                                                 activation=self.gelu,
+                                                 activation=self.relu,
                                                  batch_first=True)
         self.encoder = TransformerEncoder(self.enc_layer, num_layers=conf.num_layers_xmit)
         for name, param in self.encoder.named_parameters():
@@ -77,7 +77,7 @@ class FeedbackCode(nn.Module):
                                                  nhead=conf.n_heads,
                                                  norm_first=True,
                                                  dropout=conf.dropout,
-                                                 activation=self.gelu,
+                                                 activation=self.relu,
                                                  batch_first=True)
         self.decoder = TransformerEncoder(self.dec_layer, num_layers=conf.num_layers_recv)
         for name, param in self.decoder.named_parameters():

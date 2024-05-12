@@ -30,10 +30,10 @@ class Config():
         self.dropout = 0.0
 
         self.num_epochs = 100
-        self.batch_size = 8192
-        self.num_training_samps = int(self.batch_size*1E5)
+        self.batch_size = 1000
+        self.num_training_samps = int(1E6)
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size
-        self.grad_clip = 1
+        self.grad_clip = .5
         self.num_valid_samps = int(1e5)
         self.pooling_type = 'first'
 

@@ -26,11 +26,11 @@ def test_model(test_data, model, conf):
     with torch.no_grad():
         for i in range(num_iters):
             bits = test_data['bits'][batch_size*i : batch_size*(i+1)].unsqueeze(1).to(device)
-            noise_ff = test_data['noise_ff'][batch_size*i : batch_size*(i+1)].to(device)
-            noise_fb = test_data['noise_fb'][batch_size*i : batch_size*(i+1)].to(device)
+            # noise_ff = test_data['noise_ff'][batch_size*i : batch_size*(i+1)].to(device)
+            # noise_fb = test_data['noise_fb'][batch_size*i : batch_size*(i+1)].to(device)
 
-            output = model(bits, noise_ff, noise_fb)
-            # output = model(bits)
+            # output = model(bits, noise_ff, noise_fb)
+            output = model(bits)
             bit_estimates = model.one_hot_to_bits(output).detach().clone().cpu().numpy().astype(np.bool_)
             ber_tmp, bler_tmp = model.calc_error_rates(bit_estimates, bits.squeeze(1).detach().clone().cpu().numpy().astype(np.bool_))
 
@@ -61,6 +61,10 @@ if __name__=='__main__':
             writer = SummaryWriter()
         writer = SummaryWriter()
 
+    bitstreams_train = torch.randint(0,2,(conf.num_training_samps, 1, conf.K)).to(device)
+    noise_ff_train = np.sqrt(conf.noise_pwr_ff) * torch.randn((conf.num_training_samps, conf.N))
+    noise_fb_train = np.sqrt(conf.noise_pwr_fb) * torch.randn((conf.num_training_samps, conf.N))
+
     n_valid_samps = conf.num_valid_samps
     n_valid_iters = n_valid_samps // conf.batch_size
     test_bits = torch.randint(0,2,(n_valid_samps, conf.K))
@@ -76,15 +80,19 @@ if __name__=='__main__':
     loss_fn = nn.CrossEntropyLoss()
     bit_errors = []
     block_errors = []
+    ctr = 0
+    bs = conf.batch_size
     for epoch in range(num_epochs):
         fbc.train()
         losses = []
         for i in range(conf.num_iters_per_epoch):
-            bitstreams = torch.randint(0,2,(conf.batch_size, 1, conf.K)).to(device)
-            feedback_info = -100 * torch.ones((conf.batch_size, 1, conf.N - 1)).to(device)
+            # bitstreams = torch.randint(0,2,(conf.batch_size, 1, conf.K)).to(device)
+            bitstreams = bitstreams_train[bs*i:bs*(i+1)]
+            noise_ff = noise_ff_train[bs*i:bs*(i+1)]
+            noise_fb = noise_fb_train[bs*i:bs*(i+1)]
 
             optimizer.zero_grad()
-            output = fbc(bitstreams)
+            output = fbc(bitstreams, noise_ff, noise_fb)
             b = bitstreams.int().permute(0,2,1).squeeze(-1)
             b_one_hot = fbc.bits_to_one_hot(b).float()
             loss = loss_fn(output, b_one_hot)
@@ -101,17 +109,17 @@ if __name__=='__main__':
                 print(f'Epoch (iter): {epoch} ({i}), Loss: {loss.item()}')
 
             if conf.use_tensorboard:
-                ei = (epoch+1)*(i+1)
-                writer.add_scalar('loss/train/BER', ber, ei)
-                writer.add_scalar('loss/train/BLER', bler, ei)
-                writer.add_scalar('loss/train/loss', L, ei)
+                writer.add_scalar('loss/train/BER', ber, ctr)
+                writer.add_scalar('loss/train/BLER', bler, ctr)
+                writer.add_scalar('loss/train/loss', L, ctr)
+                ctr += 1
     
         ber, bler, _ = test_model(test_data=test_data, model=fbc, conf=conf)
         bit_errors.append(ber)
         block_errors.append(bler)
         if conf.use_tensorboard:
-            writer.add_scalar('loss/test/BER',ber,(epoch+1))
-            writer.add_scalar('loss/test/BLER',bler,(epoch+1))
+            writer.add_scalar('loss/test/BER',ber,epoch)
+            writer.add_scalar('loss/test/BLER',bler,epoch)
 
         print(f'\nEpoch Summary')
         print('====================================================')
