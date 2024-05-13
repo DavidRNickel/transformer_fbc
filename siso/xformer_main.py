@@ -2,13 +2,11 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-
 import numpy as np
 import datetime
 import sys
 import pickle as pkl
 
-# from feedback_code_class import FeedbackCode
 from fbc_test import FeedbackCode
 from config_class import Config
 from timer_class import Timer
@@ -26,10 +24,6 @@ def test_model(test_data, model, conf):
     with torch.no_grad():
         for i in range(num_iters):
             bits = test_data['bits'][batch_size*i : batch_size*(i+1)].unsqueeze(1).to(device)
-            # noise_ff = test_data['noise_ff'][batch_size*i : batch_size*(i+1)].to(device)
-            # noise_fb = test_data['noise_fb'][batch_size*i : batch_size*(i+1)].to(device)
-
-            # output = model(bits, noise_ff, noise_fb)
             output = model(bits)
             bit_estimates = model.one_hot_to_bits(output).detach().clone().cpu().numpy().astype(np.bool_)
             ber_tmp, bler_tmp = model.calc_error_rates(bit_estimates, bits.squeeze(1).detach().clone().cpu().numpy().astype(np.bool_))
@@ -76,7 +70,7 @@ if __name__=='__main__':
 
     num_epochs = conf.num_epochs 
     grad_clip = conf.grad_clip 
-    optimizer = torch.optim.AdamW(fbc.parameters(), lr=.0005, weight_decay=.01)
+    optimizer = torch.optim.AdamW(fbc.parameters(), lr=conf.optim_lr, weight_decay=conf.optim_weight_decay)
     loss_fn = nn.CrossEntropyLoss()
     bit_errors = []
     block_errors = []
@@ -86,10 +80,9 @@ if __name__=='__main__':
         fbc.train()
         losses = []
         for i in range(conf.num_iters_per_epoch):
-            # bitstreams = torch.randint(0,2,(conf.batch_size, 1, conf.K)).to(device)
-            bitstreams = bitstreams_train[bs*i:bs*(i+1)]
-            noise_ff = noise_ff_train[bs*i:bs*(i+1)]
-            noise_fb = noise_fb_train[bs*i:bs*(i+1)]
+            bitstreams = bitstreams_train[bs*i:bs*(i+1)].to(device)
+            noise_ff = noise_ff_train[bs*i:bs*(i+1)].to(device)
+            noise_fb = noise_fb_train[bs*i:bs*(i+1)].to(device)
 
             optimizer.zero_grad()
             output = fbc(bitstreams, noise_ff, noise_fb)

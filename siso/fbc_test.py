@@ -187,7 +187,7 @@ class FeedbackCode(nn.Module):
         y = self.pooling(y, self.dec_pool_dense)
         y = self.dec_raw_output(y.squeeze(1))
 
-        return self.tanh(y)
+        return y
 
     #
     #
@@ -200,7 +200,7 @@ class FeedbackCode(nn.Module):
             out = z[:,0]
         out = dense(out)
 
-        return self.tanh(out)
+        return out
 
     #
     # Make AWGN
@@ -237,7 +237,6 @@ class FeedbackCode(nn.Module):
             not_eq = np.not_equal(bit_estimates, bits)
             ber = not_eq.mean()
             bler = (not_eq.sum(1)>0).mean()
-
 
         return ber, bler
 
