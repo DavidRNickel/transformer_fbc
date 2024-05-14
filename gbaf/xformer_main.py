@@ -81,13 +81,15 @@ if __name__=='__main__':
         fbc.train()
         losses = []
         for i in range(conf.num_iters_per_epoch):
-            bitstreams = bitstreams_train[bs*i:bs*(i+1)].to(device)
+            bitstreams = bitstreams_train[bs*i:bs*(i+1)].int().to(device)
             # noise_ff = noise_ff_train[bs*i:bs*(i+1)].to(device)
             # noise_fb = noise_fb_train[bs*i:bs*(i+1)].to(device)
 
             optimizer.zero_grad()
             # output = fbc(bitstreams.view(bs,-1,conf.M), noise_ff, noise_fb)
             output = fbc(bitstreams.view(bs,-1,conf.M))
+            sys.exit()
+            # TODO: rearange the bitstreams from blocks into full bitstreams
             b = bitstreams.int().permute(0,2,1).squeeze(-1)
             b_one_hot = fbc.bits_to_one_hot(b).float()
             loss = loss_fn(output, b_one_hot)

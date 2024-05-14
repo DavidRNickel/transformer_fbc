@@ -12,7 +12,7 @@ class Config():
         self.M = 3 # length of shorter block
         assert(self.K % self.M == 0)
         self.N = self.M * self.K 
-        self.knowledge_vec_len = self.M + 2*(self.N - 1) # all old bits and all feedback
+        self.knowledge_vec_len = self.M + 2*(self.M * self.N//self.K - 1) # all old bits and all feedback
         self.snr_ff = 1 # in dB
         self.snr_fb = 20 # in dB
         self.noise_pwr_ff = 10**(-self.snr_ff/10)
@@ -20,7 +20,6 @@ class Config():
 
         # Model settings
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        print(f'device: {self.device}')
         self.max_len_enc = self.N
         self.num_layers_xmit = 2 
         self.num_layers_recv = 3
@@ -28,7 +27,7 @@ class Config():
         self.d_model = 32
         self.scaling_factor = 4
         self.dropout = 0.0
-        self.optim_lr = .0005
+        self.optim_lr = .001
         self.optim_weight_decay = .01
 
         self.num_epochs = 100

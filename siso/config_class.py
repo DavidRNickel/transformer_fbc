@@ -36,5 +36,5 @@ class Config():
         self.grad_clip = .5
         self.num_valid_samps = int(1e5)
         self.pooling_type = 'first'
-        self.use_tensorboard = True
+        self.use_tensorboard = False
         self.use_belief_network = True

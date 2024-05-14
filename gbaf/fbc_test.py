@@ -33,7 +33,7 @@ class FeedbackCode(nn.Module):
         self.N = conf.N
         self.K = conf.K
         self.M = conf.M
-        self.num_chan_uses_per_block = int(self.M * self.N // self.K)
+        self.T = int(self.M * self.N // self.K)
         self.num_blocks = int(self.K // self.M)
         self.noise_pwr_ff = conf.noise_pwr_ff
         self.noise_pwr_fb = conf.noise_pwr_fb
@@ -66,7 +66,7 @@ class FeedbackCode(nn.Module):
         nn.init.kaiming_uniform_(self.enc_raw_output.weight)
 
         # Set up the receive side decoder.
-        self.embedding_decoder = nn.Sequential(nn.Linear(self.num_chan_uses_per_block, 96),
+        self.embedding_decoder = nn.Sequential(nn.Linear(self.T, 96),
                                                self.relu, 
                                                nn.Linear(96,96),
                                                nn.Linear(96,conf.d_model))
@@ -87,15 +87,15 @@ class FeedbackCode(nn.Module):
         nn.init.kaiming_uniform_(self.dec_raw_output.weight)
 
         # Power weighting-related parameters.
-        self.weight_power = torch.nn.Parameter(torch.Tensor(self.N), requires_grad=True)
+        self.weight_power = torch.nn.Parameter(torch.Tensor(self.T), requires_grad=True)
         self.weight_power.data.uniform_(1., 1.)
-        self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N)/torch.sum(self.weight_power**2))
+        self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.T)/torch.sum(self.weight_power**2))
         self.transmit_power_tracking = []
 
         # Parameters for normalizing mean and variance of 
-        self.mean_batch = torch.zeros(self.N)
-        self.std_batch = torch.ones(self.N)
-        self.mean_saved = torch.zeros(self.N)
+        self.mean_batch = torch.zeros(self.T)
+        self.std_batch = torch.ones(self.T)
+        self.mean_saved = torch.zeros(self.T)
         self.normalization_with_saved_data = False # True: inference w/ saved mean, var; False: calculate mean, var
 
     #
@@ -103,17 +103,17 @@ class FeedbackCode(nn.Module):
     # has provided forward & feedback noise 2D matrices, as well as a 
     def forward(self, bitstreams, noise_ff=None, noise_fb=None):
         knowledge_vecs = self.make_knowledge_vecs(bitstreams)
-        self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N) / (self.weight_power**2).sum())
+        self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.T) / (self.weight_power**2).sum())
         if noise_ff is None:
-            noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.num_blocks, self.num_chan_uses_per_block)).to(self.device)
-            noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.num_blocks, self.num_chan_uses_per_block)).to(self.device)
+            noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.num_blocks, self.T)).to(self.device)
+            noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.num_blocks, self.T)).to(self.device)
         else:
             noise_ff = noise_ff
             noise_fb = noise_fb
-        self.recvd_y = torch.empty((self.batch_size, self.num_blocks, self.num_chan_uses_per_block)).to(self.device)
+        self.recvd_y = torch.empty((self.batch_size, self.num_blocks, self.T)).to(self.device)
         self.transmit_power_tracking = []
 
-        for t in range(self.num_chan_uses_per_block):
+        for t in range(self.T):
             # Transmit side
             x = self.transmit_bits_from_encoder(knowledge_vecs, t)
 
@@ -137,24 +137,22 @@ class FeedbackCode(nn.Module):
     #
     def make_knowledge_vecs(self, b, fb_info=None, prev_x=None):
         if fb_info is None:
-            fbi = -100 * torch.ones(self.batch_size, self.num_blocks, self.num_chan_uses_per_block - 1).to(self.device)
-            px = -100 * torch.ones(self.batch_size, self.num_blocks, self.num_chan_uses_per_block - 1).to(self.device)
+            fbi = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
+            px = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
             q = torch.cat((px,fbi),axis=2)
         else:
             q = torch.hstack((prev_x, fb_info))
-            q = F.pad(q, pad=(0, 2*(self.num_chan_uses_per_block - 1) - q.shape[1]), value=-100).unsqueeze(1)
+            q = F.pad(q, pad=(0, 2*(self.T - 1) - q.shape[1]), value=-100).unsqueeze(1)
 
         return torch.cat((b, q),axis=2)
 
     #
     # Do all the transmissions from the encoder side to the decoder side.
     def transmit_bits_from_encoder(self, k, t):
-        # The transpose stuff is because I did something wrong earlier on and don't want to change
-        # up all the parts of the code that work correctly...
-        x = self.embedding_encoder(torch.transpose(k,1,2))
+        x = self.embedding_encoder(k)
         x = self.pos_encoding_encoder(x)
-        x = self.encoder(x, src_key_padding_mask = k.squeeze(1)==-100)
-        x = self.enc_raw_output(x).squeeze(1)
+        x = self.encoder(x, src_key_padding_mask = (k == -100)[:,:,0])
+        x = self.enc_raw_output(x).squeeze(-1)
         x = self.normalize_transmit_signal_power(x, t)
 
         return x
@@ -162,11 +160,10 @@ class FeedbackCode(nn.Module):
     #
     # Process the received symbols at the decoder side. NOT THE DECODING STEP!!!
     def process_bits_at_receiver(self, x, t, noise_ff, noise_fb):
-        x = x.view(-1,1)
         self.transmit_power_tracking.append(torch.sum(torch.abs(x)**2,axis=1).detach().clone().cpu().numpy())
-        y =  x + noise_ff[:,t].view(-1,1)
-        y_tilde = y + noise_fb[:,t].view(-1,1)
-        self.recvd_y[:,t] = y.squeeze()
+        y =  x + noise_ff[:,:,t]
+        self.recvd_y[:,:,t] = y
+        y_tilde = y + noise_fb[:,:,t]
 
         return y_tilde
 
