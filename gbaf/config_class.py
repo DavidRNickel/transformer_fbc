@@ -8,9 +8,11 @@ import torch
 class Config():
     def __init__(self):
         # settings for communications-related stuff
-        self.K = 3 # length of bitstream
-        self.N = 9 # number channel usees
-        self.knowledge_vec_len = self.K + 2*(self.N - 1) # all old bits and all feedback
+        self.K = 51 # length of bitstream
+        self.M = 3 # length of shorter block
+        assert(self.K % self.M == 0)
+        self.N = self.M * self.K 
+        self.knowledge_vec_len = self.M + 2*(self.N - 1) # all old bits and all feedback
         self.snr_ff = 1 # in dB
         self.snr_fb = 20 # in dB
         self.noise_pwr_ff = 10**(-self.snr_ff/10)
@@ -31,10 +33,11 @@ class Config():
 
         self.num_epochs = 100
         self.batch_size = 2500
-        self.num_training_samps = int(1E7)
+        self.num_training_samps = int(1E6)
+        self.num_valid_samps = int(1e5)
+        assert(self.num_training_samps % self.batch_size == 0)
+        assert(self.num_valid_samps % self.batch_size == 0)
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size
         self.grad_clip = .5
-        self.num_valid_samps = int(1e5)
-        self.pooling_type = 'first'
-        self.use_tensorboard = True
+        self.use_tensorboard = False
         self.use_belief_network = True

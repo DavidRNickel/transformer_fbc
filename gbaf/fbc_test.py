@@ -32,23 +32,25 @@ class FeedbackCode(nn.Module):
         self.batch_size = conf.batch_size
         self.N = conf.N
         self.K = conf.K
+        self.M = conf.M
+        self.num_chan_uses_per_block = int(self.M * self.N // self.K)
+        self.num_blocks = int(self.K // self.M)
         self.noise_pwr_ff = conf.noise_pwr_ff
         self.noise_pwr_fb = conf.noise_pwr_fb
         self.training = True
         self.gelu = nn.GELU()
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
-        self.pooling_type = conf.pooling_type
 
         # Set up the transmit side encoder.
-        self.embedding_encoder = nn.Sequential(nn.Linear(1, 96), 
+        self.embedding_encoder = nn.Sequential(nn.Linear(conf.knowledge_vec_len, 96), 
                                                self.relu, 
                                                nn.Linear(96,96),
                                                self.relu,
                                                nn.Linear(96,self.d_model))
         self.pos_encoding_encoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
-                                                       max_len=conf.knowledge_vec_len)
+                                                       max_len=self.num_blocks)
         self.enc_layer = TransformerEncoderLayer(d_model=conf.d_model, 
                                                  nhead=conf.n_heads, 
                                                  norm_first=True, 
@@ -60,19 +62,17 @@ class FeedbackCode(nn.Module):
         for name, param in self.encoder.named_parameters():
             if 'weight' in name and param.data.dim() == 2:
                 nn.init.kaiming_uniform_(param)
-        self.enc_pool_dense = nn.Linear(self.d_model, self.d_model)
-        nn.init.kaiming_uniform_(self.enc_pool_dense.weight)
         self.enc_raw_output = nn.Linear(self.d_model, 1)
         nn.init.kaiming_uniform_(self.enc_raw_output.weight)
 
         # Set up the receive side decoder.
-        self.embedding_decoder = nn.Sequential(nn.Linear(1, 96),
+        self.embedding_decoder = nn.Sequential(nn.Linear(self.num_chan_uses_per_block, 96),
                                                self.relu, 
                                                nn.Linear(96,96),
                                                nn.Linear(96,conf.d_model))
         self.pos_encoding_decoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
-                                                       max_len=self.N)
+                                                       max_len=self.num_blocks)
         self.dec_layer = TransformerEncoderLayer(d_model=conf.d_model,
                                                  nhead=conf.n_heads,
                                                  norm_first=True,
@@ -83,9 +83,7 @@ class FeedbackCode(nn.Module):
         for name, param in self.decoder.named_parameters():
             if 'weight' in name and param.data.dim() == 2:
                 nn.init.kaiming_uniform_(param)
-        self.dec_pool_dense = nn.Linear(self.d_model, self.d_model)
-        nn.init.kaiming_uniform_(self.dec_pool_dense.weight)
-        self.dec_raw_output = nn.Linear(self.d_model, 2**self.K)
+        self.dec_raw_output = nn.Linear(self.d_model, 2**self.M)
         nn.init.kaiming_uniform_(self.dec_raw_output.weight)
 
         # Power weighting-related parameters.
@@ -107,15 +105,15 @@ class FeedbackCode(nn.Module):
         knowledge_vecs = self.make_knowledge_vecs(bitstreams)
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.N) / (self.weight_power**2).sum())
         if noise_ff is None:
-            noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.N)).to(self.device)
-            noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.N)).to(self.device)
+            noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.num_blocks, self.num_chan_uses_per_block)).to(self.device)
+            noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.num_blocks, self.num_chan_uses_per_block)).to(self.device)
         else:
             noise_ff = noise_ff
             noise_fb = noise_fb
-        self.recvd_y = torch.empty((self.batch_size, self.N)).to(self.device)
+        self.recvd_y = torch.empty((self.batch_size, self.num_blocks, self.num_chan_uses_per_block)).to(self.device)
         self.transmit_power_tracking = []
 
-        for t in range(self.N):
+        for t in range(self.num_chan_uses_per_block):
             # Transmit side
             x = self.transmit_bits_from_encoder(knowledge_vecs, t)
 
@@ -139,12 +137,12 @@ class FeedbackCode(nn.Module):
     #
     def make_knowledge_vecs(self, b, fb_info=None, prev_x=None):
         if fb_info is None:
-            fbi = -100 * torch.ones((self.batch_size, 1, self.N - 1)).to(self.device)
-            px = -100 * torch.ones((self.batch_size, 1, self.N - 1)).to(self.device)
+            fbi = -100 * torch.ones(self.batch_size, self.num_blocks, self.num_chan_uses_per_block - 1).to(self.device)
+            px = -100 * torch.ones(self.batch_size, self.num_blocks, self.num_chan_uses_per_block - 1).to(self.device)
             q = torch.cat((px,fbi),axis=2)
         else:
-            q = torch.hstack((prev_x,fb_info))
-            q = F.pad(q, pad=(0, 2*(self.N - 1) - q.shape[1]), value=-100).unsqueeze(1)
+            q = torch.hstack((prev_x, fb_info))
+            q = F.pad(q, pad=(0, 2*(self.num_chan_uses_per_block - 1) - q.shape[1]), value=-100).unsqueeze(1)
 
         return torch.cat((b, q),axis=2)
 
@@ -156,7 +154,6 @@ class FeedbackCode(nn.Module):
         x = self.embedding_encoder(torch.transpose(k,1,2))
         x = self.pos_encoding_encoder(x)
         x = self.encoder(x, src_key_padding_mask = k.squeeze(1)==-100)
-        x = self.pooling(x, self.enc_pool_dense)
         x = self.enc_raw_output(x).squeeze(1)
         x = self.normalize_transmit_signal_power(x, t)
 
@@ -180,23 +177,9 @@ class FeedbackCode(nn.Module):
         y = self.embedding_decoder(torch.transpose(y,1,2))
         y = self.pos_encoding_decoder(y)
         y = self.decoder(y)
-        y = self.pooling(y, self.dec_pool_dense)
         y = self.dec_raw_output(y.squeeze(1))
 
         return y
-
-    #
-    #
-    def pooling(self, z, dense):
-        if self.pooling_type == 'avg':
-            out = z[:,].mean(1)
-        elif self.pooling_type == 'max':
-            out = torch.max(z[:,],1)[0]
-        elif self.pooling_type == 'first':
-            out = z[:,0]
-        out = dense(out)
-
-        return out
 
     #
     # Make AWGN
