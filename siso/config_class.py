@@ -26,7 +26,7 @@ class Config():
         self.d_model = 32
         self.scaling_factor = 4
         self.dropout = 0.0
-        self.optim_lr = .0005
+        self.optim_lr = .001
         self.optim_weight_decay = .01
 
         self.num_epochs = 100
@@ -36,5 +36,5 @@ class Config():
         self.grad_clip = .5
         self.num_valid_samps = int(1e5)
         self.pooling_type = 'first'
-        self.use_tensorboard = False
+        self.use_tensorboard = True
         self.use_belief_network = True

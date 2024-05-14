@@ -69,6 +69,7 @@ class FeedbackCode(nn.Module):
         self.embedding_decoder = nn.Sequential(nn.Linear(1, 96),
                                                self.relu, 
                                                nn.Linear(96,96),
+                                               self.relu,
                                                nn.Linear(96,conf.d_model))
         self.pos_encoding_decoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
@@ -128,7 +129,7 @@ class FeedbackCode(nn.Module):
                 self.recvd_y_tilde = y_tilde
                 self.prev_xmit_signal = x.view(-1,1)
             
-            if t < self.N-1: # don't need to update the feedback information after the last transmission.
+            if t <= self.N-1: # don't need to update the feedback information after the last transmission.
                 knowledge_vecs = self.make_knowledge_vecs(bitstreams, fb_info=self.recvd_y_tilde, prev_x=self.prev_xmit_signal)
 
         dec_out = self.decode_received_symbols(self.recvd_y)

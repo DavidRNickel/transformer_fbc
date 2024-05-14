@@ -69,6 +69,7 @@ class FeedbackCode(nn.Module):
         self.embedding_decoder = nn.Sequential(nn.Linear(self.T, 96),
                                                self.relu, 
                                                nn.Linear(96,96),
+                                               self.relu,
                                                nn.Linear(96,conf.d_model))
         self.pos_encoding_decoder = PositionalEncoding(d_model=conf.d_model, 
                                                        dropout=conf.dropout, 
@@ -120,13 +121,13 @@ class FeedbackCode(nn.Module):
             y_tilde = self.process_bits_at_receiver(x, t, noise_ff, noise_fb)
 
             if t!=0:
-                self.recvd_y_tilde = torch.hstack((self.recvd_y_tilde,y_tilde))
-                self.prev_xmit_signal = torch.hstack((self.prev_xmit_signal, x.view(-1,1)))
+                self.recvd_y_tilde = torch.cat((self.recvd_y_tilde,y_tilde.unsqueeze(-1)),axis=2)
+                self.prev_xmit_signal = torch.cat((self.prev_xmit_signal, x.unsqueeze(-1)), axis=2)
             else:
-                self.recvd_y_tilde = y_tilde
-                self.prev_xmit_signal = x.view(-1,1)
+                self.prev_xmit_signal = x.unsqueeze(-1)
+                self.recvd_y_tilde = y_tilde.unsqueeze(-1)
             
-            if t < self.N-1: # don't need to update the feedback information after the last transmission.
+            if t <= self.T-1: # don't need to update the feedback information after the last transmission.
                 knowledge_vecs = self.make_knowledge_vecs(bitstreams, fb_info=self.recvd_y_tilde, prev_x=self.prev_xmit_signal)
 
         dec_out = self.decode_received_symbols(self.recvd_y)
@@ -141,8 +142,8 @@ class FeedbackCode(nn.Module):
             px = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
             q = torch.cat((px,fbi),axis=2)
         else:
-            q = torch.hstack((prev_x, fb_info))
-            q = F.pad(q, pad=(0, 2*(self.T - 1) - q.shape[1]), value=-100).unsqueeze(1)
+            q = torch.cat((prev_x,fb_info),axis=2)
+            q = F.pad(q, pad=(0, 2*(self.T - 1) - q.shape[-1]), value=-100)
 
         return torch.cat((b, q),axis=2)
 
@@ -170,11 +171,10 @@ class FeedbackCode(nn.Module):
     #
     # Actually decode all of the received symbols.
     def decode_received_symbols(self,y):
-        y = y.unsqueeze(1)
-        y = self.embedding_decoder(torch.transpose(y,1,2))
+        y = self.embedding_decoder(y)
         y = self.pos_encoding_decoder(y)
         y = self.decoder(y)
-        y = self.dec_raw_output(y.squeeze(1))
+        y = self.dec_raw_output(y)
 
         return y
 
@@ -191,14 +191,14 @@ class FeedbackCode(nn.Module):
         # the base-10 representation of the binary.
         x = (bitstreams * (1<<torch.arange(bitstreams.shape[-1]-1,-1,-1).to(self.device))).sum(1)
 
-        return F.one_hot(x, num_classes=2**self.K)
+        return F.one_hot(x, num_classes=2**self.M)
 
     #
     # Map the onehot representations into their binary representations.
     def one_hot_to_bits(self, onehots):
         x = torch.argmax(onehots,dim=1)
         # Adapted from https://stackoverflow.com/questions/22227595/convert-integer-to-binary-array-with-suitable-padding
-        bin_representations = (((x[:,None] & (1 << torch.arange(self.K,requires_grad=False).to(self.device).flip(0)))) > 0).int()
+        bin_representations = (((x[:,None] & (1 << torch.arange(self.M,requires_grad=False).to(self.device).flip(0)))) > 0).int()
 
         return bin_representations
 

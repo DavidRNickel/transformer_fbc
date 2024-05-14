@@ -88,7 +88,6 @@ if __name__=='__main__':
             optimizer.zero_grad()
             # output = fbc(bitstreams.view(bs,-1,conf.M), noise_ff, noise_fb)
             output = fbc(bitstreams.view(bs,-1,conf.M))
-            sys.exit()
             # TODO: rearange the bitstreams from blocks into full bitstreams
             b = bitstreams.int().permute(0,2,1).squeeze(-1)
             b_one_hot = fbc.bits_to_one_hot(b).float()
