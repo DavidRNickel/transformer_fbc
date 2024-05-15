@@ -189,9 +189,9 @@ class FeedbackCode(nn.Module):
         # This is a torch adaptation of https://stackoverflow.com/questions/15505514/binary-numpy-array-to-list-of-integers
         # It maps binary representations to their one-hot values by first converting the rows into 
         # the base-10 representation of the binary.
-        x = (bitstreams * (1<<torch.arange(bitstreams.shape[-1]-1,-1,-1).to(self.device))).sum(1)
+        x = torch.stack([(b * (1<<torch.arange(b.shape[-1]-1,-1,-1).to(self.device))).sum(1) for b in bitstreams]).view(-1,1)
 
-        return F.one_hot(x, num_classes=2**self.M)
+        return F.one_hot(x, num_classes=2**self.M).squeeze(1)
 
     #
     # Map the onehot representations into their binary representations.
@@ -224,7 +224,7 @@ class FeedbackCode(nn.Module):
     #
     # Handle the power weighting on the transmit bits.
     def normalize_transmit_signal_power(self, x, t):
-        x = torch.tanh(x)
+        # x = torch.tanh(x)
         x = self.normalization(x, t)
 
         return self.weight_power_normalized[t] * x 

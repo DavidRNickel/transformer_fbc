@@ -38,5 +38,5 @@ class Config():
         assert(self.num_valid_samps % self.batch_size == 0)
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size
         self.grad_clip = .5
-        self.use_tensorboard = False
+        self.use_tensorboard = True
         self.use_belief_network = True

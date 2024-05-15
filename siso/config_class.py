@@ -31,10 +31,10 @@ class Config():
 
         self.num_epochs = 100
         self.batch_size = 2500
-        self.num_training_samps = int(1E7)
+        self.num_training_samps = int(1E6)
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size
         self.grad_clip = .5
         self.num_valid_samps = int(1e5)
         self.pooling_type = 'first'
-        self.use_tensorboard = True
+        self.use_tensorboard = False
         self.use_belief_network = True

@@ -245,7 +245,7 @@ class FeedbackCode(nn.Module):
     #
     # Handle the power weighting on the transmit bits.
     def normalize_transmit_signal_power(self, x, t):
-        x = torch.tanh(x)
+        # x = torch.tanh(x)
         x = self.normalization(x, t)
 
         return self.weight_power_normalized[t] * x 
