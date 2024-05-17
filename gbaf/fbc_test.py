@@ -71,7 +71,7 @@ class FeedbackCode(nn.Module):
                                                                                                                          d_model=conf.d_model,
                                                                                                                          activation=self.relu,
                                                                                                                          max_len=self.num_blocks,
-                                                                                                                         self.num_layers=conf.num_layers_xmit)
+                                                                                                                         num_layers=conf.num_layers_xmit)
 
         # Set up the receive side decoder.
         # self.embedding_decoder = nn.Sequential(nn.Linear(self.T, 96),
@@ -102,14 +102,15 @@ class FeedbackCode(nn.Module):
                                                                                                                          max_len=self.num_blocks,
                                                                                                                          num_layers=conf.num_layers_recv)
 
-        if conf.use_belief_network:
-            self.embedding_belief, self.pos_encoding_belief, self.belief_attn_nwk, self.belief_raw_output = general_attention_network(dim_in=self.T-1,
-                                                                                                                                      dim_out=2*self.M,
-                                                                                                                                      dim_embed=96,
-                                                                                                                                      d_model=conf.d_model,
-                                                                                                                                      activation-self.relu,
-                                                                                                                                      max_len=self.num_blocks,
-                                                                                                                                      num_layers=conf.num_layers_belief)
+        print(conf.use_belief_network)
+        # if conf.use_belief_network:
+        #     self.embedding_belief, self.pos_encoding_belief, self.belief_attn_nwk, self.belief_raw_output = general_attention_network(dim_in=self.T-1,
+        #                                                                                                                               dim_out=2*self.M,
+        #                                                                                                                               dim_embed=96,
+        #                                                                                                                               d_model=conf.d_model,
+        #                                                                                                                               activation-self.relu,
+        #                                                                                                                               max_len=self.num_blocks,
+        #                                                                                                                               num_layers=conf.num_layers_belief)
 
         # Power weighting-related parameters.
         self.weight_power = torch.nn.Parameter(torch.Tensor(self.T), requires_grad=True)
@@ -157,10 +158,9 @@ class FeedbackCode(nn.Module):
 
             # if t < self.T-1: # don't need to update the feedback information after the last transmission.
             knowledge_vecs = self.make_knowledge_vecs(bitstreams,
-                                                        fb_info=self.recvd_y_tilde, 
-                                                        prev_x=self.prev_xmit_signal)
-
-
+                                                      fb_info=self.recvd_y_tilde, 
+                                                      prev_x=self.prev_xmit_signal,
+                                                      beliefs=beliefs)
 
         dec_out = self.decode_received_symbols(self.recvd_y)
 
@@ -168,7 +168,7 @@ class FeedbackCode(nn.Module):
 
     #
     #
-    def make_knowledge_vecs(self, b, fb_info=None, prev_x=None):
+    def make_knowledge_vecs(self, b, fb_info=None, prev_x=None, beliefs=None):
         if fb_info is None:
             fbi = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
             px = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)

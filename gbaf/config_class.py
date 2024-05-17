@@ -8,7 +8,7 @@ import torch
 class Config():
     def __init__(self):
         self.use_tensorboard = True
-        self.use_belief_network = True
+        self.use_belief_network = False
 
         # settings for communications-related stuff
         self.K = 51 # length of bitstream
