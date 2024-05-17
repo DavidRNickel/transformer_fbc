@@ -7,7 +7,7 @@ import torch
 
 class Config():
     def __init__(self):
-        self.use_tensorboard = True
+        self.use_tensorboard = False
         self.use_belief_network = False
 
         # settings for communications-related stuff

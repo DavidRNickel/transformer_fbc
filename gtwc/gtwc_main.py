@@ -7,7 +7,7 @@ import datetime
 import sys
 import pickle as pkl
 
-from fbc_test import FeedbackCode
+from gtwc_class import GTWC
 from config_class import Config
 from timer_class import Timer
 
@@ -45,7 +45,7 @@ if __name__=='__main__':
     device = conf.device
     timer = Timer()
 
-    fbc = FeedbackCode(conf).to(device)
+    fbc = GTWC(conf).to(device)
 
     if conf.use_tensorboard:
         from torch.utils.tensorboard import SummaryWriter
@@ -83,11 +83,8 @@ if __name__=='__main__':
         losses = []
         for i in range(conf.num_iters_per_epoch):
             bitstreams = bitstreams_train[bs*i:bs*(i+1)].int().to(device)
-            # noise_ff = noise_ff_train[bs*i:bs*(i+1)].to(device)
-            # noise_fb = noise_fb_train[bs*i:bs*(i+1)].to(device)
 
             optimizer.zero_grad()
-            # output = fbc(bitstreams.view(bs,-1,conf.M), noise_ff, noise_fb)
             b = bitstreams.view(bs,-1,conf.M)
             output = fbc(b).view(bs*fbc.num_blocks, 2**fbc.M)
             b_one_hot = fbc.bits_to_one_hot(b).float()
