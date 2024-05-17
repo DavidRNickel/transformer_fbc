@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderLayer
 
 from pos_enc_test import PositionalEncoding
+from attention_network import general_attention_network
 from timer_class import Timer
 
 timer = Timer()
@@ -42,50 +43,73 @@ class FeedbackCode(nn.Module):
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
 
-        # Set up the transmit side encoder.
-        self.embedding_encoder = nn.Sequential(nn.Linear(conf.knowledge_vec_len, 96), 
-                                               self.relu, 
-                                               nn.Linear(96,96),
-                                               self.relu,
-                                               nn.Linear(96,self.d_model))
-        self.pos_encoding_encoder = PositionalEncoding(d_model=conf.d_model, 
-                                                       dropout=conf.dropout, 
-                                                       max_len=self.num_blocks)
-        self.enc_layer = TransformerEncoderLayer(d_model=conf.d_model, 
-                                                 nhead=conf.n_heads, 
-                                                 norm_first=True, 
-                                                 dropout=conf.dropout, 
-                                                 dim_feedforward=conf.scaling_factor*conf.d_model,
-                                                 activation=self.relu,
-                                                 batch_first=True)
-        self.encoder = TransformerEncoder(self.enc_layer, num_layers=conf.num_layers_xmit)
-        for name, param in self.encoder.named_parameters():
-            if 'weight' in name and param.data.dim() == 2:
-                nn.init.kaiming_uniform_(param)
-        self.enc_raw_output = nn.Linear(self.d_model, 1)
-        nn.init.kaiming_uniform_(self.enc_raw_output.weight)
+        # # Set up the transmit side encoder.
+        # self.embedding_encoder = nn.Sequential(nn.Linear(conf.knowledge_vec_len, 96), 
+        #                                        self.relu, 
+        #                                        nn.Linear(96,96),
+        #                                        self.relu,
+        #                                        nn.Linear(96,self.d_model))
+        # self.pos_encoding_encoder = PositionalEncoding(d_model=conf.d_model, 
+        #                                                dropout=conf.dropout, 
+        #                                                max_len=self.num_blocks)
+        # self.enc_layer = TransformerEncoderLayer(d_model=conf.d_model, 
+        #                                          nhead=conf.n_heads, 
+        #                                          norm_first=True, 
+        #                                          dropout=conf.dropout, 
+        #                                          dim_feedforward=conf.scaling_factor*conf.d_model,
+        #                                          activation=self.relu,
+        #                                          batch_first=True)
+        # self.encoder = TransformerEncoder(self.enc_layer, num_layers=conf.num_layers_xmit)
+        # for name, param in self.encoder.named_parameters():
+        #     if 'weight' in name and param.data.dim() == 2:
+        #         nn.init.kaiming_uniform_(param)
+        # self.enc_raw_output = nn.Linear(self.d_model, 1)
+        # nn.init.kaiming_uniform_(self.enc_raw_output.weight)
+        self.embedding_encoder, self.pos_encoding_encoder, self.encoder, self.enc_raw_output = general_attention_network(dim_in=conf.knowledge_vec_len,
+                                                                                                                         dim_out=1,
+                                                                                                                         dim_embed=96,
+                                                                                                                         d_model=conf.d_model,
+                                                                                                                         activation=self.relu,
+                                                                                                                         max_len=self.num_blocks,
+                                                                                                                         self.num_layers=conf.num_layers_xmit)
 
         # Set up the receive side decoder.
-        self.embedding_decoder = nn.Sequential(nn.Linear(self.T, 96),
-                                               self.relu, 
-                                               nn.Linear(96,96),
-                                               self.relu,
-                                               nn.Linear(96,conf.d_model))
-        self.pos_encoding_decoder = PositionalEncoding(d_model=conf.d_model, 
-                                                       dropout=conf.dropout, 
-                                                       max_len=self.num_blocks)
-        self.dec_layer = TransformerEncoderLayer(d_model=conf.d_model,
-                                                 nhead=conf.n_heads,
-                                                 norm_first=True,
-                                                 dropout=conf.dropout,
-                                                 activation=self.relu,
-                                                 batch_first=True)
-        self.decoder = TransformerEncoder(self.dec_layer, num_layers=conf.num_layers_recv)
-        for name, param in self.decoder.named_parameters():
-            if 'weight' in name and param.data.dim() == 2:
-                nn.init.kaiming_uniform_(param)
-        self.dec_raw_output = nn.Linear(self.d_model, 2**self.M)
-        nn.init.kaiming_uniform_(self.dec_raw_output.weight)
+        # self.embedding_decoder = nn.Sequential(nn.Linear(self.T, 96),
+        #                                        self.relu, 
+        #                                        nn.Linear(96,96),
+        #                                        self.relu,
+        #                                        nn.Linear(96,conf.d_model))
+        # self.pos_encoding_decoder = PositionalEncoding(d_model=conf.d_model, 
+        #                                                dropout=conf.dropout, 
+        #                                                max_len=self.num_blocks)
+        # self.dec_layer = TransformerEncoderLayer(d_model=conf.d_model,
+        #                                          nhead=conf.n_heads,
+        #                                          norm_first=True,
+        #                                          dropout=conf.dropout,
+        #                                          activation=self.relu,
+        #                                          batch_first=True)
+        # self.decoder = TransformerEncoder(self.dec_layer, num_layers=conf.num_layers_recv)
+        # for name, param in self.decoder.named_parameters():
+        #     if 'weight' in name and param.data.dim() == 2:
+        #         nn.init.kaiming_uniform_(param)
+        # self.dec_raw_output = nn.Linear(self.d_model, 2**self.M)
+        # nn.init.kaiming_uniform_(self.dec_raw_output.weight)
+        self.embedding_decoder, self.pos_encoding_decoder, self.decoder, self.dec_raw_output = general_attention_network(dim_in=self.T,
+                                                                                                                         dim_out=2**self.M,
+                                                                                                                         dim_embed=96,
+                                                                                                                         d_model=conf.d_model,
+                                                                                                                         activation=self.relu,
+                                                                                                                         max_len=self.num_blocks,
+                                                                                                                         num_layers=conf.num_layers_recv)
+
+        if conf.use_belief_network:
+            self.embedding_belief, self.pos_encoding_belief, self.belief_attn_nwk, self.belief_raw_output = general_attention_network(dim_in=self.T-1,
+                                                                                                                                      dim_out=2*self.M,
+                                                                                                                                      dim_embed=96,
+                                                                                                                                      d_model=conf.d_model,
+                                                                                                                                      activation-self.relu,
+                                                                                                                                      max_len=self.num_blocks,
+                                                                                                                                      num_layers=conf.num_layers_belief)
 
         # Power weighting-related parameters.
         self.weight_power = torch.nn.Parameter(torch.Tensor(self.T), requires_grad=True)
@@ -103,6 +127,7 @@ class FeedbackCode(nn.Module):
     # forward() calls both encoder and decoder. For evaluation, it is expected that the user
     # has provided forward & feedback noise 2D matrices, as well as a 
     def forward(self, bitstreams, noise_ff=None, noise_fb=None):
+        beliefs = None
         knowledge_vecs = self.make_knowledge_vecs(bitstreams)
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.T) / (self.weight_power**2).sum())
         if noise_ff is None:
@@ -127,8 +152,15 @@ class FeedbackCode(nn.Module):
                 self.prev_xmit_signal = x.unsqueeze(-1)
                 self.recvd_y_tilde = y_tilde.unsqueeze(-1)
             
-            if t <= self.T-1: # don't need to update the feedback information after the last transmission.
-                knowledge_vecs = self.make_knowledge_vecs(bitstreams, fb_info=self.recvd_y_tilde, prev_x=self.prev_xmit_signal)
+            if self.conf.use_belief_network:
+                beliefs = self.get_beliefs(self.recvd_y_tilde)
+
+            # if t < self.T-1: # don't need to update the feedback information after the last transmission.
+            knowledge_vecs = self.make_knowledge_vecs(bitstreams,
+                                                        fb_info=self.recvd_y_tilde, 
+                                                        prev_x=self.prev_xmit_signal)
+
+
 
         dec_out = self.decode_received_symbols(self.recvd_y)
 
@@ -177,6 +209,17 @@ class FeedbackCode(nn.Module):
         y = self.dec_raw_output(y)
 
         return y
+
+    #
+    #
+    def get_beliefs(self, y):
+        y = self.embedding_belief(y)
+        y = self.pos_encoding_belief(y)
+        y = self.belief_attn_nwk(y)
+        y = self.belief_raw_output(y)
+        y = F.softmax(y.view(self.batch_size, -1, 2))
+
+        return y.view(self.batch_size, -1, 2*self.M)
 
     #
     # Make AWGN
