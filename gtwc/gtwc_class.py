@@ -36,7 +36,8 @@ class GTWC(nn.Module):
         self.N = conf.N
         self.K = conf.K
         self.M = conf.M
-        self.T = int(self.M * self.N // self.K)
+        self.T = conf.T
+        print(f'K: {self.K}, M: {self.M}, N: {self.N}, T: {self.T}')
         self.num_blocks = int(self.K // self.M)
         self.noise_pwr_ff = conf.noise_pwr_ff
         self.noise_pwr_fb = conf.noise_pwr_fb
@@ -50,7 +51,7 @@ class GTWC(nn.Module):
                                                                      activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_xmit)
 
         (self.emb_dec_1, self.pos_enc_dec_1, 
-         self.dec_1, self.dec_raw_out_1) = general_attention_network(dim_in=self.T, dim_out=2**self.M, dim_embed=96, d_model=conf.d_model, 
+         self.dec_1, self.dec_raw_out_1) = general_attention_network(dim_in=self.T+self.M, dim_out=2**self.M, dim_embed=96, d_model=conf.d_model, 
                                                                      activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_recv)
 
         (self.emb_enc_2, self.pos_enc_enc_2, 
@@ -58,7 +59,7 @@ class GTWC(nn.Module):
                                                                      activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_xmit)
 
         (self.emb_dec_2, self.pos_enc_dec_2, 
-         self.dec_2, self.dec_raw_out_2) = general_attention_network(dim_in=self.T, dim_out=2**self.M, dim_embed=96, d_model=conf.d_model, 
+         self.dec_2, self.dec_raw_out_2) = general_attention_network(dim_in=self.T+self.M, dim_out=2**self.M, dim_embed=96, d_model=conf.d_model, 
                                                                      activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_recv)
 
         if self.use_beliefs:
@@ -76,21 +77,23 @@ class GTWC(nn.Module):
         self.wgt_pwr_normed_1 = torch.sqrt(self.wgt_pwr_1**2 * (self.T)/torch.sum(self.wgt_pwr_1**2))
         self.xmit_pwr_track_1 = []
 
-        # Power weighting-related parameters.
         self.wgt_pwr_2 = torch.nn.Parameter(torch.Tensor(self.T), requires_grad=True)
         self.wgt_pwr_2.data.uniform_(1., 1.)
         self.wgt_pwr_normed_2 = torch.sqrt(self.wgt_pwr_2**2 * (self.T)/torch.sum(self.wgt_pwr_2**2))
         self.xmit_pwr_track_2 = []
 
-        # Parameters for normalizing mean and variance of 
+        # Parameters for normalizing mean and variance of transmit signals.
         self.mean_batch_1 = torch.zeros(self.T)
-        self.std_batch = torch.ones(self.T)
-        self.mean_saved = torch.zeros(self.T)
+        self.std_batch_1 = torch.ones(self.T)
+        self.mean_saved_1 = torch.zeros(self.T)
+
+        self.mean_batch_2 = torch.zeros(self.T)
+        self.std_batch_2 = torch.ones(self.T)
+        self.mean_saved_2 = torch.zeros(self.T)
         self.normalization_with_saved_data = False # True: inference w/ saved mean, var; False: calculate mean, var
 
     #
-    # forward() calls both encoder and decoder. For evaluation, it is expected that the user
-    # has provided forward & feedback noise 2D matrices, as well as a 
+    #
     def forward(self, bitstreams_1, bitstreams_2, noise_ff=None, noise_fb=None):
         know_vecs_1, know_vecs_2 = self.make_knowledge_vecs(b=(bitstreams_1, bitstreams_2))
         beliefs_1 = None
@@ -118,29 +121,29 @@ class GTWC(nn.Module):
 
             self.process_bits_at_receiver(x1, x2, t, noise_ff, noise_fb)
 
-            if t!=0:
+            if t != 0:
                 self.prev_xmit_signal_1 = torch.cat((self.prev_xmit_signal_1, x1.unsqueeze(-1)), axis=2)
                 self.prev_xmit_signal_2 = torch.cat((self.prev_xmit_signal_2, x2.unsqueeze(-1)), axis=2)
             else:
                 self.prev_xmit_signal_1 = x1.unsqueeze(-1)
                 self.prev_xmit_signal_2 = x2.unsqueeze(-1)
             
-            if self.conf.use_belief_network:
+            if self.use_beliefs:
                 beliefs_1, beliefs_2 = self.get_beliefs()
 
             know_vecs_1, know_vecs_2 = self.make_knowledge_vecs(b=(bitstreams_1, bitstreams_2), 
                                                                 fb_info=(self.recvd_y_1, self.recvd_y_2), 
                                                                 prev_x=(self.prev_xmit_signal_1, self.prev_xmit_signal_2), 
-                                                                beliefs=beliefs)
+                                                                beliefs=(beliefs_1, beliefs_2) if self.use_beliefs else None)
 
-        dec_out_1, dec_out_2 = self.decode_received_symbols(torch.cat((self.recvd_y_1, bitstreams_1), axis=2),
-                                                            torch.cat((self.recvd_y_2, bitstreams_2), axis=2))
+        dec_out_1, dec_out_2 = self.decode_received_symbols(torch.cat((self.recvd_y_2, bitstreams_2), axis=2),
+                                                            torch.cat((self.recvd_y_1, bitstreams_1), axis=2))
 
         return dec_out_1, dec_out_2
 
     #
     #
-    def make_knowledge_vecs(self, b, fb_info=None, prev_x=None, recvd_y=None, beliefs=None):
+    def make_knowledge_vecs(self, b, fb_info=None, prev_x=None, beliefs=None):
         if fb_info is None:
             fbi_1 = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
             fbi_2 = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
@@ -155,18 +158,17 @@ class GTWC(nn.Module):
                 q_1 = torch.cat((px_1, fbi_1, bel_1),axis=2)
                 q_2 = torch.cat((px_2, fbi_2, bel_2),axis=2)
         else:
-            fbi_i, fbi_2 = fb_info
+            fbi_1, fbi_2 = fb_info
             px_1, px_2 = prev_x
-            rec_y_1, rec_y_2 = recvd_y
             if self.use_beliefs == False:
-                q_1 = torch.cat((px_1, fbi_1, rec_y_2),axis=2)
-                q_2 = torch.cat((px_2, fbi_2, rec_y_1),axis=2)
+                q_1 = torch.cat((px_1, fbi_1),axis=2)
+                q_2 = torch.cat((px_2, fbi_2),axis=2)
                 q_1 = F.pad(q_1, pad=(0, 2*(self.T - 1) - q_1.shape[-1]), value=-100)
                 q_2 = F.pad(q_2, pad=(0, 2*(self.T - 1) - q_2.shape[-1]), value=-100)
             else:
                 bel_1, bel_2 = beliefs
-                q_1 = torch.cat((px_1, fbi_1, rec_y_2, bel_1),axis=2)
-                q_2 = torch.cat((px_2, fbi_2, rec_y_1, bel_2),axis=2)
+                q_1 = torch.cat((px_1, fbi_1, bel_1),axis=2)
+                q_2 = torch.cat((px_2, fbi_2, bel_2),axis=2)
                 q_1 = F.pad(q_1, pad=(0, 2*(self.T - 1) + 2*self.M - q_1.shape[-1]), value=-100)
                 q_2 = F.pad(q_2, pad=(0, 2*(self.T - 1) + 2*self.M - q_2.shape[-1]), value=-100)
 
@@ -184,13 +186,13 @@ class GTWC(nn.Module):
 
     #
     # Do all the transmissions from the encoder side to the decoder side.
-    def transmit_bits_from_encoder(self, k1, k2 t):
+    def transmit_bits_from_encoder(self, k1, k2, t):
         x1 = self.emb_enc_1(k1)
         x1 = self.pos_enc_enc_1(x1)
         x1 = self.enc_1(x1, src_key_padding_mask = (k1 == -100)[:,:,0])
         x1 = self.enc_raw_out_1(x1).squeeze(-1)
 
-        x2 = self.emb_enc_1(k2)
+        x2 = self.emb_enc_2(k2)
         x2 = self.pos_enc_enc_2(x2)
         x2 = self.enc_2(x2, src_key_padding_mask = (k2 == -100)[:,:,0])
         x2 = self.enc_raw_out_2(x2).squeeze(-1)
@@ -207,8 +209,8 @@ class GTWC(nn.Module):
         y1 =  x2 + noise_fb[:,:,t]
 
         if t != 0:
-            self.recvd_y_1 = torch.cat((self.recvd_y_1, y1), axis=2)
-            self.recvd_y_2 = torch.cat((self.recvd_y_2, y2), axis=2)
+            self.recvd_y_1 = torch.cat((self.recvd_y_1, y1.unsqueeze(-1)), axis=2)
+            self.recvd_y_2 = torch.cat((self.recvd_y_2, y2.unsqueeze(-1)), axis=2)
         else:
             self.recvd_y_1 = y1.unsqueeze(-1)
             self.recvd_y_2 = y2.unsqueeze(-1)
@@ -300,17 +302,31 @@ class GTWC(nn.Module):
 
     #
     # Normalize the batch.
-    def normalization(self, inputs, t_idx):
-        mean_batch_1 = torch.mean(inputs)
-        std_batch = torch.std(inputs)
-        if self.training == True:
-            outputs = (inputs - mean_batch_1) / std_batch
-        else:
-            if self.normalization_with_saved_data:
-                outputs = (inputs - self.mean_saved[t_idx]) / self.std_saved[t_idx]
+    def normalization(self, inputs, t_idx, uid):
+        if uid==1:
+            mean_batch_1 = torch.mean(inputs)
+            std_batch_1 = torch.std(inputs)
+            if self.training == True:
+                outputs = (inputs - mean_batch_1) / std_batch_1
             else:
-                self.mean_batch_1[t_idx] = mean_batch
-                self.std_batch[t_idx] = std_batch
-                outputs = (inputs - mean_batch_1) / std_batch
+                if self.normalization_with_saved_data:
+                    outputs = (inputs - self.mean_saved_1[t_idx]) / self.std_saved_1[t_idx]
+                else:
+                    self.mean_batch_1[t_idx] = mean_batch_1
+                    self.std_batch_1[t_idx] = std_batch_1
+                    outputs = (inputs - mean_batch_1) / std_batch_1
+
+        else:
+            mean_batch_2 = torch.mean(inputs)
+            std_batch_2 = torch.std(inputs)
+            if self.training == True:
+                outputs = (inputs - mean_batch_2) / std_batch_2
+            else:
+                if self.normalization_with_saved_data:
+                    outputs = (inputs - self.mean_saved_2[t_idx]) / self.std_saved_2[t_idx]
+                else:
+                    self.mean_batch_2[t_idx] = mean_batch_2
+                    self.std_batch_2[t_idx] = std_batch_2
+                    outputs = (inputs - mean_batch_2) / std_batch_2
 
         return outputs

@@ -7,19 +7,20 @@ import torch
 
 class Config():
     def __init__(self):
-        self.use_tensorboard = False
+        self.use_tensorboard = True
         self.use_belief_network = False
 
         # settings for communications-related stuff
-        self.K = 51 # length of bitstream
-        self.M = 3 # length of shorter block
+        self.K = 6 # length of bitstream
+        self.M = 6 # length of shorter block
         assert(self.K % self.M == 0)
+        self.T = 18 # int(self.M * self.N//self.K)
         self.N = self.M * self.K 
-        self.knowledge_vec_len = self.M + 2*(self.M * self.N//self.K - 1) # all old bits and all feedback
+        self.knowledge_vec_len = self.M + 2*(self.T - 1) 
         if self.use_belief_network:
             self.knowledge_vec_len += 2*self.M
         self.snr_ff = 1 # in dB
-        self.snr_fb = 20 # in dB
+        self.snr_fb = 15 # in dB
         self.noise_pwr_ff = 10**(-self.snr_ff/10)
         self.noise_pwr_fb = 10**(-self.snr_fb/10)
 
