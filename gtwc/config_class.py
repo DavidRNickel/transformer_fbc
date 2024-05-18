@@ -12,9 +12,9 @@ class Config():
 
         # settings for communications-related stuff
         self.K = 6 # length of bitstream
-        self.M = 6 # length of shorter block
+        self.M = 3 # length of shorter block
         assert(self.K % self.M == 0)
-        self.T = 18 # int(self.M * self.N//self.K)
+        self.T = 9 # int(self.M * self.N//self.K)
         self.N = self.M * self.K 
         self.knowledge_vec_len = self.M + 2*(self.T - 1) 
         if self.use_belief_network:
@@ -39,7 +39,7 @@ class Config():
 
         self.num_epochs = 100
         self.batch_size = 2500
-        self.num_training_samps = int(1E6)
+        self.num_training_samps = int(1E7)
         self.num_valid_samps = int(1e5)
         assert(self.num_training_samps % self.batch_size == 0)
         assert(self.num_valid_samps % self.batch_size == 0)

@@ -79,12 +79,8 @@ if __name__=='__main__':
     n_valid_iters = n_valid_samps // conf.batch_size
     test_bits_1 = torch.randint(0,2,(n_valid_samps, conf.K))
     test_bits_2 = torch.randint(0,2,(n_valid_samps, conf.K))
-    test_noise_ff = np.sqrt(conf.noise_pwr_ff) * torch.randn(size=(n_valid_samps, conf.N))
-    test_noise_fb = np.sqrt(conf.noise_pwr_fb) * torch.randn(size=(n_valid_samps, conf.N))
     test_data = {'bits_1' : test_bits_1,
-                 'bits_2' : test_bits_2,
-                 'noise_ff' : test_noise_ff,
-                 'noise_fb' : test_noise_fb}
+                 'bits_2' : test_bits_2}
 
     num_epochs = conf.num_epochs 
     grad_clip = conf.grad_clip 
