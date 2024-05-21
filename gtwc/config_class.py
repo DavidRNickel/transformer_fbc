@@ -9,6 +9,7 @@ class Config():
     def __init__(self):
         self.use_tensorboard = True
         self.use_belief_network = False
+        self.loadfile = '20240521-111002.pt'
 
         # settings for communications-related stuff
         self.K = 6 # length of bitstream
@@ -41,7 +42,7 @@ class Config():
         self.num_training_samps = int(5E6)
         self.num_valid_samps = int(1E4)
         self.num_test_samps = int(1E5)
-        self.num_infer_samps = int(1E10)
+        self.num_infer_samps = int(1E8)
         assert(self.num_training_samps % self.batch_size == 0)
         assert(self.num_valid_samps % self.batch_size == 0)
         assert(self.num_test_samps % self.batch_size == 0)

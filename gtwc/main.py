@@ -56,28 +56,37 @@ if __name__=='__main__':
     timer = Timer()
 
     gtwc = GTWC(conf).to(device)
+    nowtime = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
 
     if conf.use_tensorboard:
         from torch.utils.tensorboard import SummaryWriter
         # Set up TensorBoard for logging purposes.
         writer = None
         if conf.use_tensorboard:
-            log_folder = 'logs/fit/' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+            log_folder = 'logs/fit/' + nowtime
             writer = SummaryWriter()
 
     bs = conf.batch_size
     bitstreams_train_1 = torch.randint(0,2,(conf.num_training_samps, conf.K)).to(device)
     bitstreams_train_2 = torch.randint(0,2,(conf.num_training_samps, conf.K)).to(device)
 
+    epoch_start = 0
     num_epochs = conf.num_epochs 
     grad_clip = conf.grad_clip 
     optimizer = torch.optim.AdamW(gtwc.parameters(), lr=conf.optim_lr, weight_decay=conf.optim_weight_decay)
-    scheduler = torch.optim.lr_scheduler.PolynomialLR(optimizer, total_iters=num_epochs)
+    scheduler = torch.optim.lr_scheduler.PolynomialLR(optimizer, total_iters=num_epochs) 
+    if conf.loadfile is not None:
+        checkpoint = torch.load(conf.loadfile)
+        gtwc.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        epoch_start = checkpoint['epoch']
+
     loss_fn = nn.CrossEntropyLoss()
     bit_errors = []
     block_errors = []
     ctr = 0
-    for epoch in range(num_epochs):
+    for epoch in range(epoch_start, num_epochs):
         gtwc.train()
         losses = []
         for i in range(conf.num_iters_per_epoch):
@@ -115,7 +124,7 @@ if __name__=='__main__':
                 writer.add_scalar('loss/train/loss', L, ctr)
                 ctr += 1
 
-            if i % 25 == 0:
+            if i % 50 == 0:
                 ber_tup, bler_tup, _ = test_model(test_bits_1=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device),
                                                   test_bits_2=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device), 
                                                   model=gtwc, conf=conf)
@@ -149,6 +158,14 @@ if __name__=='__main__':
         print(f'Epoch: {epoch}, Average loss: {np.mean(losses)}')
         print(f'BER: {ber:e}, BLER {bler:e}')
         print('====================================================\n')
+
+        torch.save({'epoch' : epoch,
+                    'model_state_dict' : gtwc.state_dict(),
+                    'optimizer_state_dict' : optimizer.state_dict(),
+                    'scheduler_state_dict' : scheduler.state_dict(),
+                    'loss' : L},
+                    f'{nowtime}.pt')
+        
     
     print(f'ber: {np.array(bit_errors)}')
     print(f'bler: {np.array(block_errors)}')
