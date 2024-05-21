@@ -119,10 +119,7 @@ class Feedback_Code(torch.nn.Module):
             if t == 0: # 1st timestep
                 input_total        = torch.cat([I.view(self.param.batch_size, 1, self.num_input), 
                                                torch.zeros((self.param.batch_size, 1, 1)).to(device)], dim=2) 
-                ### input_total -- (batch,1, num_input + 1) 
                 x_t_after_RNN, s_t_hidden  = self.encoder_RNN(input_total)
-                ### x_t_after_RNN -- (batch, 1, hidden)
-                ### s_t -- (layers, batch, hidden)
                 x_t_tilde =   torch.tanh(self.encoder_linear(x_t_after_RNN))   
                 
             else: # 2-30nd timestep
@@ -213,6 +210,7 @@ def one_hot(bit_vec):
     for ii in range(N_batch):
         b_onehot[ii, ind_vec[ii]]=1 # one-hot vector
     return b_onehot
+
 # Test
 def test_RNN(N_test): 
 

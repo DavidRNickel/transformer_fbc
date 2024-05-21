@@ -20,8 +20,8 @@ class params():
         # 5. Attention mechanism with 2N weights (separate weights for forward/backward)
         
         # Setup
-        self.N_bits: int = 3                # number of bits
-        self.N_channel_use = 9             # number of channel uses
+        self.N_bits: int = 6                # number of bits
+        self.N_channel_use = 18             # number of channel uses
         self.input_type = 'bit_vector'      # choose 'bit_vector' or 'one_hot_vector'
         self.output_type = 'one_hot_vector' # choose 'bit_vector' or 'one_hot_vector'
 

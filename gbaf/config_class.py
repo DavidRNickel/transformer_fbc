@@ -1,13 +1,8 @@
-"""
-@author : Hyunwoong
-@when : 2019-10-22
-@homepage : https://github.com/gusdnd852
-"""
 import torch
 
 class Config():
     def __init__(self):
-        self.use_tensorboard = False
+        self.use_tensorboard = True
         self.use_belief_network = False
 
         # settings for communications-related stuff
@@ -15,7 +10,8 @@ class Config():
         self.M = 3 # length of shorter block
         assert(self.K % self.M == 0)
         self.N = self.M * self.K 
-        self.knowledge_vec_len = self.M + 2*(self.M * self.N//self.K - 1) # all old bits and all feedback
+        self.T = 9
+        self.knowledge_vec_len = self.M + 2*(self.T - 1) # all old bits and all feedback
         if self.use_belief_network:
             self.knowledge_vec_len += 2*self.M
         self.snr_ff = 1 # in dB
@@ -33,13 +29,13 @@ class Config():
         self.d_model = 32
         self.scaling_factor = 4
         self.dropout = 0.0
-        self.optim_lr = .001
+        self.optim_lr = .005
         self.optim_weight_decay = .01
 
-        self.num_epochs = 100
-        self.batch_size = 2500
-        self.num_training_samps = int(1E6)
-        self.num_valid_samps = int(1e5)
+        self.num_epochs = 20
+        self.batch_size = 5000
+        self.num_training_samps = int(5E6)
+        self.num_valid_samps = int(1E5)
         assert(self.num_training_samps % self.batch_size == 0)
         assert(self.num_valid_samps % self.batch_size == 0)
         self.num_iters_per_epoch = self.num_training_samps // self.batch_size

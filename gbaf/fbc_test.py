@@ -35,7 +35,8 @@ class FeedbackCode(nn.Module):
         self.N = conf.N
         self.K = conf.K
         self.M = conf.M
-        self.T = int(self.M * self.N // self.K)
+        self.T = conf.T
+        print(f'K: {self.K}, M: {self.M}, N: {self.N}, T: {self.T}')
         self.num_blocks = int(self.K // self.M)
         self.noise_pwr_ff = conf.noise_pwr_ff
         self.noise_pwr_fb = conf.noise_pwr_fb
@@ -74,7 +75,7 @@ class FeedbackCode(nn.Module):
     # has provided forward & feedback noise 2D matrices, as well as a 
     def forward(self, bitstreams, noise_ff=None, noise_fb=None):
         beliefs = None
-        knowledge_vecs = self.make_knowledge_vecs(bitstreams)
+        knowledge_vecs = self.make_knowledge_vecs(bitstreams.to(self.device))
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.T) / (self.weight_power**2).sum())
         if noise_ff is None:
             noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.num_blocks, self.T)).to(self.device)
@@ -82,6 +83,7 @@ class FeedbackCode(nn.Module):
         else:
             noise_ff = noise_ff
             noise_fb = noise_fb
+
         # Initialize to this so we can pad it later on.
         self.recvd_y = -100*torch.ones((self.batch_size, self.num_blocks, self.T)).to(self.device)
         self.transmit_power_tracking = []
@@ -124,12 +126,13 @@ class FeedbackCode(nn.Module):
                 bel = -100 * torch.ones(self.batch_size, self.num_blocks, 2*self.M).to(self.device)
                 q = torch.cat((px, fbi, bel),axis=2)
         else:
+            px = F.pad(prev_x, pad=(0,self.T-1-prev_x.shape[-1]), value=-100)
+            fbi = F.pad(fb_info, pad=(0,self.T-1-fb_info.shape[-1]), value=-100)
             if self.use_beliefs == False:
-                q = torch.cat((prev_x, fb_info),axis=2)
-                q = F.pad(q, pad=(0, 2*(self.T - 1) - q.shape[-1]), value=-100)
+                q = torch.cat((px, fbi), axis=2)
             else:
-                q = torch.cat((prev_x, fb_info, beliefs),axis=2)
-                q = F.pad(q, pad=(0, 2*(self.T - 1) + 2*self.M - q.shape[-1]), value=-100)
+                bel = F.pad(beliefs, pad=(0,2*self.M-beliefs.shape[-1]), value=-100)
+                q = torch.cat((px,fbi,bel),axis=2)
 
         return torch.cat((b, q),axis=2)
     
@@ -145,6 +148,7 @@ class FeedbackCode(nn.Module):
         x = self.pos_encoding_encoder(x)
         x = self.encoder(x, src_key_padding_mask = (k == -100)[:,:,0])
         x = self.enc_raw_output(x).squeeze(-1)
+        x = self.tanh(x - x.mean())
         x = self.normalize_transmit_signal_power(x, t)
 
         return x
@@ -226,7 +230,6 @@ class FeedbackCode(nn.Module):
     #
     # Handle the power weighting on the transmit bits.
     def normalize_transmit_signal_power(self, x, t):
-        # x = torch.tanh(x)
         x = self.normalization(x, t)
 
         return self.weight_power_normalized[t] * x 

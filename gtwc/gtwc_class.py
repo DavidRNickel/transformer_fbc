@@ -6,9 +6,7 @@ import sys
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderLayer
 
-from pos_enc_test import PositionalEncoding
 from attention_network import general_attention_network
 from timer_class import Timer
 
@@ -17,10 +15,10 @@ timer = Timer()
 # constants
 ONE_OVER_SQRT_TWO = 1/np.sqrt(2)
 rng = np.random.default_rng()
-fd = 10
-T = 100E-3
-RHO = j0(2*pi*fd*T)
-SQRT_ONE_MIN_RHO_2 = sqrt(1 - RHO**2)
+# fd = 10
+# T = 100E-3
+# RHO = j0(2*pi*fd*T)
+# SQRT_ONE_MIN_RHO_2 = sqrt(1 - RHO**2)
 
 
 class GTWC(nn.Module):
@@ -105,9 +103,6 @@ class GTWC(nn.Module):
         if noise_ff is None:
             noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.num_blocks, self.T)).to(self.device)
             noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.num_blocks, self.T)).to(self.device)
-        else:
-            noise_ff = noise_ff
-            noise_fb = noise_fb
 
         self.recvd_y_1 = None # dummy initializations; populated in process_bits_rx()
         self.recvd_y_2 = None
@@ -129,7 +124,8 @@ class GTWC(nn.Module):
                 self.prev_xmit_signal_2 = x2.unsqueeze(-1)
             
             if self.use_beliefs:
-                beliefs_1, beliefs_2 = self.get_beliefs()
+                bv1, bv2 = self.make_belief_vecs()
+                beliefs_1, beliefs_2 = self.get_beliefs(bv1, bv2)
 
             know_vecs_1, know_vecs_2 = self.make_knowledge_vecs(b=(bitstreams_1, bitstreams_2), 
                                                                 fb_info=(self.recvd_y_1, self.recvd_y_2), 
@@ -160,17 +156,19 @@ class GTWC(nn.Module):
         else:
             fbi_1, fbi_2 = fb_info
             px_1, px_2 = prev_x
+            px_1 = F.pad(px_1, pad=(0,self.T-1-px_1.shape[-1]), value=-100)
+            px_2 = F.pad(px_2, pad=(0,self.T-1-px_2.shape[-1]), value=-100)
+            fbi_1 = F.pad(fbi_1, pad=(0,self.T-1-fbi_1.shape[-1]), value=-100)
+            fbi_2 = F.pad(fbi_2, pad=(0,self.T-1-fbi_2.shape[-1]), value=-100)
             if self.use_beliefs == False:
                 q_1 = torch.cat((px_1, fbi_1),axis=2)
                 q_2 = torch.cat((px_2, fbi_2),axis=2)
-                q_1 = F.pad(q_1, pad=(0, 2*(self.T - 1) - q_1.shape[-1]), value=-100)
-                q_2 = F.pad(q_2, pad=(0, 2*(self.T - 1) - q_2.shape[-1]), value=-100)
             else:
                 bel_1, bel_2 = beliefs
+                bel_1 = F.pad(bel_1, pad=(0,2*self.M-bel_1.shape[-1]), value=-100)
+                bel_2 = F.pad(bel_2, pad=(0,2*self.M-bel_2.shape[-1]), value=-100)
                 q_1 = torch.cat((px_1, fbi_1, bel_1),axis=2)
                 q_2 = torch.cat((px_2, fbi_2, bel_2),axis=2)
-                q_1 = F.pad(q_1, pad=(0, 2*(self.T - 1) + 2*self.M - q_1.shape[-1]), value=-100)
-                q_2 = F.pad(q_2, pad=(0, 2*(self.T - 1) + 2*self.M - q_2.shape[-1]), value=-100)
 
         b_1, b_2 = b
 
@@ -191,11 +189,13 @@ class GTWC(nn.Module):
         x1 = self.pos_enc_enc_1(x1)
         x1 = self.enc_1(x1, src_key_padding_mask = (k1 == -100)[:,:,0])
         x1 = self.enc_raw_out_1(x1).squeeze(-1)
+        x1 = self.tanh(x1 - x1.mean())
 
         x2 = self.emb_enc_2(k2)
         x2 = self.pos_enc_enc_2(x2)
         x2 = self.enc_2(x2, src_key_padding_mask = (k2 == -100)[:,:,0])
         x2 = self.enc_raw_out_2(x2).squeeze(-1)
+        x2 = self.tanh(x2 - x2.mean())
 
         return self.normalize_transmit_signal_power(x1, x2, t)
 
@@ -247,7 +247,7 @@ class GTWC(nn.Module):
         y2 = self.bel_raw_out_2(y2)
         y2 = F.softmax(y2.view(self.batch_size, -1, 2), dim=1)
 
-        return y1.view(self.batch_size, -1, 2*self.M), y2.view(self.batch-size, -1, 2*self.M)
+        return y1.view(self.batch_size, -1, 2*self.M), y2.view(self.batch_size, -1, 2*self.M)
 
     #
     # Make AWGN
