@@ -14,12 +14,13 @@ if __name__=='__main__':
     gtwc.load_state_dict(checkpoint['model_state_dict'])
 
     print('Testing...')
-    N = int(1E8)
+    N = int(1E7)
     bers, blers, _ = test_model(N, gtwc, conf, show_progress_interval=1000)
 
     print(f'BER: {bers}')
     print(f'BLER: {blers}')
     b = {'ber' : bers, 'bler' : blers}
 
-    with open(f'{conf.loadfile[:-3]}_bler.pkl','wb') as f:
+    test_no = int(1)
+    with open(f'{conf.loadfile[:-3]}_bler_{test_no}.pkl','wb') as f:
         pkl.dump(b,f)
