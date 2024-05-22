@@ -38,7 +38,7 @@ class Config():
         self.dropout = 0.0
 
         self.num_epochs = 20
-        self.batch_size = 100
+        self.batch_size = 25000
         self.num_training_samps = int(5E6)
         self.num_valid_samps = int(1E4)
         self.num_test_samps = int(1E5)

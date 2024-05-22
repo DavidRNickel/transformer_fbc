@@ -14,8 +14,8 @@ if __name__=='__main__':
     gtwc.load_state_dict(checkpoint['model_state_dict'])
 
     print('Testing...')
-    N = int(1E7)
-    bers, blers, _ = test_model(N, gtwc, conf, show_progress_interval=1000)
+    N = int(1E9)
+    bers, blers, _ = test_model(N, gtwc, conf, show_progress_interval=100)
 
     print(f'BER: {bers}')
     print(f'BLER: {blers}')

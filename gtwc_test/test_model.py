@@ -16,8 +16,6 @@ def test_model(N_bits, model, conf, show_progress_interval=None):
             if show_progress_interval is not None:
                 if i % show_progress_interval == 0:
                     print(f'Iter: {i} (of {num_iters})')
-            # bits_1 = test_bits_1[batch_size*i : batch_size*(i+1)].to(device)
-            # bits_2 = test_bits_2[batch_size*i : batch_size*(i+1)].to(device)
             bits_1 = torch.randint(0,2, (bs, conf.K)).to(conf.device)
             bits_2 = torch.randint(0,2, (bs, conf.K)).to(conf.device)
             b1 = bits_1.view(bs,-1,conf.M)
@@ -37,7 +35,6 @@ def test_model(N_bits, model, conf, show_progress_interval=None):
             ber += ber_tmp_1 + ber_tmp_2
             bler += bler_tmp_1 + bler_tmp_2
             
-        ber /= num_iters
-        bler /= num_iters
+        ber /= num_iters; ber_1 /= num_iters; ber_2 /= num_iters; bler /= num_iters; bler_1 /= num_iters; bler_2 /= num_iters
     
     return (ber, ber_1, ber_2), (bler, bler_1, bler_2), None
