@@ -2,8 +2,9 @@ import torch
 
 class Config():
     def __init__(self):
-        self.use_tensorboard = True
-        self.use_belief_network = False
+        self.use_tensorboard = False
+        self.use_belief_network = True
+        self.loadfile = None
 
         # settings for communications-related stuff
         self.K = 51 # length of bitstream
@@ -20,7 +21,8 @@ class Config():
         self.noise_pwr_fb = 10**(-self.snr_fb/10)
 
         # Model settings
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f'Running on device: {self.device}')
         self.max_len_enc = self.N
         self.num_layers_xmit = 2 
         self.num_layers_belief = 2
@@ -29,14 +31,12 @@ class Config():
         self.d_model = 32
         self.scaling_factor = 4
         self.dropout = 0.0
-        self.optim_lr = .005
+        self.optim_lr = .001
         self.optim_weight_decay = .01
 
-        self.num_epochs = 20
-        self.batch_size = 5000
-        self.num_training_samps = int(5E6)
-        self.num_valid_samps = int(1E5)
-        assert(self.num_training_samps % self.batch_size == 0)
-        assert(self.num_valid_samps % self.batch_size == 0)
-        self.num_iters_per_epoch = self.num_training_samps // self.batch_size
+        self.num_epochs = int(1E5)
+        self.batch_size = 8192
+        self.num_valid_epochs = 125
         self.grad_clip = .5
+        self.save_freq = int(2500)
+        self.print_freq = int(500)

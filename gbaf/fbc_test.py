@@ -6,9 +6,7 @@ import sys
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderLayer
 
-from pos_enc_test import PositionalEncoding
 from attention_network import general_attention_network
 from timer_class import Timer
 
@@ -45,18 +43,39 @@ class FeedbackCode(nn.Module):
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
 
+        print('Making encoder...')
+        # (self.embedding_encoder, self.pos_encoding_encoder, 
+        #  self.encoder, self.enc_raw_output) = general_attention_network(dim_in=conf.knowledge_vec_len, dim_out=1, dim_embed=96, d_model=conf.d_model,
+        #                                                   activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_xmit)
         (self.embedding_encoder, self.pos_encoding_encoder, 
-         self.encoder, self.enc_raw_output) = general_attention_network(dim_in=conf.knowledge_vec_len, dim_out=1, dim_embed=96, d_model=conf.d_model,
+         self.encoder, self.enc_raw_output) = general_attention_network(dim_in=conf.knowledge_vec_len, dim_out=1, dim_embed=96, d_model=conf.d_model, dim_embed_out=96,
                                                           activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_xmit)
+        self.enc_neg_mask = torch.ones((self.T, self.num_blocks, conf.knowledge_vec_len)).to(self.device)
+        for t in range(self.T):
+            self.enc_neg_mask[t,:,self.M:self.M+t] *= -1
+        self.emb_enc_lin_out = nn.Linear(192, conf.d_model)
 
+        print('Making decoder...')
+        # (self.embedding_decoder, self.pos_encoding_decoder, 
+        #  self.decoder, self.dec_raw_output) = general_attention_network(dim_in=self.T, dim_out=2**self.M, dim_embed=96, d_model=conf.d_model, 
+        #                                                   activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_recv)
         (self.embedding_decoder, self.pos_encoding_decoder, 
-         self.decoder, self.dec_raw_output) = general_attention_network(dim_in=self.T, dim_out=2**self.M, dim_embed=96, d_model=conf.d_model, 
+         self.decoder, self.dec_raw_output) = general_attention_network(dim_in=self.T, dim_out=2**self.M, dim_embed=96, d_model=conf.d_model, dim_embed_out=96,
                                                           activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_recv)
+        self.emb_dec_lin_out = nn.Linear(192, conf.d_model)
 
         if self.use_beliefs:
+            print('Making belief network...')
+            # (self.embedding_belief, self.pos_encoding_belief, 
+            #  self.belief_attn_nwk, self.belief_raw_output) = general_attention_network(dim_in=self.T-1, dim_out=2*self.M, dim_embed=96, d_model=conf.d_model, 
+            #                                                                            activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_belief)
             (self.embedding_belief, self.pos_encoding_belief, 
-             self.belief_attn_nwk, self.belief_raw_output) = general_attention_network(dim_in=self.T-1, dim_out=2*self.M, dim_embed=96, d_model=conf.d_model, 
+             self.belief_attn_nwk, self.belief_raw_output) = general_attention_network(dim_in=self.T-1, dim_out=2*self.M, dim_embed=96, d_model=conf.d_model, dim_embed_out=96,
                                                                                        activation=self.relu, max_len=self.num_blocks, num_layers=conf.num_layers_belief)
+            self.bel_neg_mask = torch.ones((self.T, self.num_blocks, self.T-1)).to(self.device)
+            for t in range(self.T):
+                self.bel_neg_mask[t,:,:t] *= -1
+            self.emb_bel_lin_out = nn.Linear(192, conf.d_model)
 
         # Power weighting-related parameters.
         self.weight_power = torch.nn.Parameter(torch.Tensor(self.T), requires_grad=True)
@@ -78,14 +97,15 @@ class FeedbackCode(nn.Module):
         knowledge_vecs = self.make_knowledge_vecs(bitstreams.to(self.device))
         self.weight_power_normalized = torch.sqrt(self.weight_power**2 * (self.T) / (self.weight_power**2).sum())
         if noise_ff is None:
-            noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.num_blocks, self.T)).to(self.device)
-            noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.num_blocks, self.T)).to(self.device)
+            noise_ff = sqrt(self.noise_pwr_ff) * torch.randn((self.batch_size, self.num_blocks, self.T), requires_grad=False).to(self.device)
+            noise_fb = sqrt(self.noise_pwr_fb) * torch.randn((self.batch_size, self.num_blocks, self.T), requires_grad=False).to(self.device)
         else:
             noise_ff = noise_ff
             noise_fb = noise_fb
 
         # Initialize to this so we can pad it later on.
-        self.recvd_y = -100*torch.ones((self.batch_size, self.num_blocks, self.T)).to(self.device)
+        # self.recvd_y = -100*torch.ones((self.batch_size, self.num_blocks, self.T)).to(self.device)
+        self.recvd_y = torch.zeros((self.batch_size, self.num_blocks, self.T)).to(self.device)
         self.transmit_power_tracking = []
 
         for t in range(self.T):
@@ -101,14 +121,15 @@ class FeedbackCode(nn.Module):
                 self.prev_xmit_signal = x.unsqueeze(-1)
                 self.recvd_y_tilde = y_tilde.unsqueeze(-1)
             
-            if self.conf.use_belief_network:
-                beliefs = self.get_beliefs(self.make_belief_vecs(self.recvd_y_tilde))
+            if t < self.T-1:
+                if self.conf.use_belief_network:
+                    beliefs = self.get_beliefs(self.make_belief_vecs(), t+1)
 
-            # if t < self.T-1: # don't need to update the feedback information after the last transmission.
-            knowledge_vecs = self.make_knowledge_vecs(bitstreams,
-                                                      fb_info=self.recvd_y_tilde, 
-                                                      prev_x=self.prev_xmit_signal,
-                                                      beliefs=beliefs)
+                # if t < self.T-1: # don't need to update the feedback information after the last transmission.
+                knowledge_vecs = self.make_knowledge_vecs(bitstreams,
+                                                        fb_info=self.recvd_y_tilde, 
+                                                        prev_x=self.prev_xmit_signal,
+                                                        beliefs=beliefs)
 
         dec_out = self.decode_received_symbols(self.recvd_y)
 
@@ -117,36 +138,39 @@ class FeedbackCode(nn.Module):
     #
     #
     def make_knowledge_vecs(self, b, fb_info=None, prev_x=None, beliefs=None):
-        if fb_info is None:
-            fbi = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
-            px = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
+        if fb_info is not None:
+            # px = F.pad(prev_x, pad=(0,self.T-1-prev_x.shape[-1]), value=-100)
+            # fbi = F.pad(fb_info, pad=(0,self.T-1-fb_info.shape[-1]), value=-100)
+            px = F.pad(prev_x, pad=(0,self.T-1-prev_x.shape[-1]), value=0)
+            fbi = F.pad(fb_info, pad=(0,self.T-1-fb_info.shape[-1]), value=0)
             if self.use_beliefs == False:
-                q = torch.cat((px, fbi),axis=2)
+                q = torch.cat((fbi, px),axis=2)
             else:
-                bel = -100 * torch.ones(self.batch_size, self.num_blocks, 2*self.M).to(self.device)
-                q = torch.cat((px, fbi, bel),axis=2)
+                q = torch.cat((fbi, px, beliefs),axis=2)
+
         else:
-            px = F.pad(prev_x, pad=(0,self.T-1-prev_x.shape[-1]), value=-100)
-            fbi = F.pad(fb_info, pad=(0,self.T-1-fb_info.shape[-1]), value=-100)
+            # fbi = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
+            # px = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
+            fbi = torch.zeros(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
+            px = torch.zeros(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
             if self.use_beliefs == False:
-                q = torch.cat((px, fbi), axis=2)
+                q = torch.cat((fbi, px),axis=2)
             else:
-                bel = F.pad(beliefs, pad=(0,2*self.M-beliefs.shape[-1]), value=-100)
-                q = torch.cat((px,fbi,bel),axis=2)
+                # bel = -100 * torch.ones(self.batch_size, self.num_blocks, 2*self.M).to(self.device)
+                bel = torch.zeros(self.batch_size, self.num_blocks, 2*self.M).to(self.device)
+                q = torch.cat((fbi, px, bel),axis=2)
 
         return torch.cat((b, q),axis=2)
-    
-    #
-    #
-    def make_belief_vecs(self, y):
-        return F.pad(self.recvd_y_tilde, pad=(0, self.T-1 - self.recvd_y_tilde.shape[-1]), value=-100)
 
     #
     # Do all the transmissions from the encoder side to the decoder side.
     def transmit_bits_from_encoder(self, k, t):
-        x = self.embedding_encoder(k)
+        x1 = self.embedding_encoder(k)
+        x2 = self.embedding_encoder(self.enc_neg_mask[t]*k)
+        x = self.emb_enc_lin_out(torch.cat((x1,x2),axis=2))
+        # x = self.embedding_encoder(k)
         x = self.pos_encoding_encoder(x)
-        x = self.encoder(x, src_key_padding_mask = (k == -100)[:,:,0])
+        x = self.encoder(x)
         x = self.enc_raw_output(x).squeeze(-1)
         x = self.tanh(x - x.mean())
         x = self.normalize_transmit_signal_power(x, t)
@@ -165,8 +189,11 @@ class FeedbackCode(nn.Module):
 
     #
     # Actually decode all of the received symbols.
-    def decode_received_symbols(self,y):
-        y = self.embedding_decoder(y)
+    def decode_received_symbols(self, z):
+        y1 = self.embedding_decoder(z)
+        y2 = self.embedding_decoder(-1*z)
+        y = self.emb_dec_lin_out(torch.cat((y1,y2),axis=2))
+        # y = self.embedding_decoder(z)
         y = self.pos_encoding_decoder(y)
         y = self.decoder(y)
         y = self.dec_raw_output(y)
@@ -174,9 +201,18 @@ class FeedbackCode(nn.Module):
         return y
 
     #
+    #
+    def make_belief_vecs(self):
+        # return F.pad(self.recvd_y_tilde, pad=(0, self.T-1 - self.recvd_y_tilde.shape[-1]), value=-100)
+        return F.pad(self.recvd_y_tilde, pad=(0, self.T-1 - self.recvd_y_tilde.shape[-1]), value=0)
+
+    #
     # Take in received information and make belief vectors.
-    def get_beliefs(self, y):
-        y = self.embedding_belief(y)
+    def get_beliefs(self, z, t):
+        y1 = self.embedding_belief(z)
+        y2 = self.embedding_belief(-1 * z)
+        y = self.emb_bel_lin_out(torch.cat((y1,y2),axis=2))
+        # y = self.embedding_belief(z)
         y = self.pos_encoding_belief(y)
         y = self.belief_attn_nwk(y)
         y = self.belief_raw_output(y)

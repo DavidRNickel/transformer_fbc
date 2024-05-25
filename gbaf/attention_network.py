@@ -6,15 +6,16 @@ from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderL
 from pos_enc_test import PositionalEncoding
 
 def general_attention_network(dim_in, dim_out, dim_embed, d_model, activation, max_len, num_layers,
-                              scaling_factor=4, n_heads=1, dropout=0, embed=None):
-    # This is option C from the MLP varieties in the GBAF paper. You can also provide
-    # your own embedding if you so desire.
+                              scaling_factor=4, n_heads=1, dropout=0, embed=None, dim_embed_out=None):
+
     if embed is None:
+        if dim_embed_out is None:
+            dim_embed_out = d_model
         embedding = nn.Sequential(nn.Linear(dim_in, dim_embed),
                                   activation,
                                   nn.Linear(dim_embed, dim_embed),
                                   activation,
-                                  nn.Linear(dim_embed, d_model))
+                                  nn.Linear(dim_embed, dim_embed_out))
     else:
         embedding = embed
     

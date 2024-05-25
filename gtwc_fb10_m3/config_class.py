@@ -4,7 +4,7 @@ class Config():
     def __init__(self):
         self.use_tensorboard = False
         self.use_belief_network = True
-        self.loadfile = None
+        self.loadfile = '20240524-175913.pt'
 
         # settings for communications-related stuff
         self.K = 6 # length of bitstream
