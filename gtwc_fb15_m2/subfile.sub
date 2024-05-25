@@ -1,9 +1,0 @@
-#!/bin/bash
-# FILENAME: subfile.sub
-
-module load use.own
-module load conda-env/gtwc-py3.11.7
-
-cd ${SLURM_SUBMIT_DIR}
-
-python3 main.py
