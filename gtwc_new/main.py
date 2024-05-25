@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 import numpy as np
 from math import sqrt
@@ -10,42 +11,7 @@ import pickle as pkl
 from gtwc_class import GTWC
 from config_class import Config
 from timer_class import Timer
-
-
-def test_model(test_bits_1, test_bits_2, model, conf):
-    model.eval()
-    num_test_streams = 
-    ber = 0
-    ber_1 = 0
-    ber_2 = 0
-    bler = 0
-    bler_1 = 0
-    bler_2 = 0
-    with torch.no_grad():
-        for i in range(num_iters):
-            bits_1 = test_bits_1[batch_size*i : batch_size*(i+1)].to(device)
-            bits_2 = test_bits_2[batch_size*i : batch_size*(i+1)].to(device)
-            b1 = bits_1.view(batch_size,-1,conf.M)
-            b2 = bits_2.view(batch_size,-1,conf.M)
-            output_1, output_2 = model(b1, b2)
-            output_1 = output_1.view(bs*model.num_blocks, 2**conf.M)
-            output_2 = output_2.view(bs*model.num_blocks, 2**conf.M)
-            bit_estimates_1 = model.one_hot_to_bits(output_1).bool().view(batch_size,-1).detach().clone().cpu().numpy().astype(np.bool_)
-            bit_estimates_2 = model.one_hot_to_bits(output_2).bool().view(batch_size,-1).detach().clone().cpu().numpy().astype(np.bool_)
-            ber_tmp_1, bler_tmp_1 = model.calc_error_rates(bit_estimates_1, bits_1.detach().clone().cpu().numpy().astype(np.bool_))
-            ber_tmp_2, bler_tmp_2 = model.calc_error_rates(bit_estimates_2, bits_2.detach().clone().cpu().numpy().astype(np.bool_))
-
-            ber_1 += ber_tmp_1
-            ber_2 += ber_tmp_2
-            bler_1 += bler_tmp_1
-            bler_2 += bler_tmp_2
-            ber += ber_tmp_1 + ber_tmp_2
-            bler += bler_tmp_1 + bler_tmp_2
-            
-        ber /= num_iters
-        bler /= num_iters
-    
-    return (ber, ber_1, ber_2), (bler, bler_1, bler_2), None
+from test_model import test_model
 
 
 if __name__=='__main__':
@@ -123,9 +89,7 @@ if __name__=='__main__':
                 ctr += 1
 
             if i % 50 == 0:
-                ber_tup, bler_tup, _ = test_model(test_bits_1=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device),
-                                                  test_bits_2=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device), 
-                                                  model=gtwc, conf=conf)
+                ber_tup, bler_tup, _ = test_model(conf.num_test_samps, model=gtwc, conf=conf)
                 ber, ber_1, ber_2 = ber_tup
                 bler, bler_1, bler_2 = bler_tup
                 print(f'Epoch (iter): {epoch} ({i}), Loss: {L}')
@@ -133,9 +97,10 @@ if __name__=='__main__':
                 gtwc.train()
 
     
-        ber_tup, bler_tup, _ = test_model(test_bits_1=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device),
-                                          test_bits_2=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device), 
-                                          model=gtwc, conf=conf)
+        ber_tup, bler_tup, _ = test_model(conf.num_test_samps, model=gtwc, conf=conf)
+        # ber_tup, bler_tup, _ = test_model(test_bits_1=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device),
+        #                                   test_bits_2=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device), 
+        #                                   model=gtwc, conf=conf)
         ber, ber_1, ber_2 = ber_tup
         bler, bler_1, bler_2 = bler_tup
         bit_errors.append(ber)
@@ -155,7 +120,7 @@ if __name__=='__main__':
         print('====================================================')
         print(f'Epoch: {epoch}, Average loss: {np.mean(losses)}')
         print(f'BER: {ber:e}, BLER {bler:e}')
-        print('====================================================\n')
+        print('====================================================\n'); nowtime = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
 
         torch.save({'epoch' : epoch,
                     'model_state_dict' : gtwc.state_dict(),

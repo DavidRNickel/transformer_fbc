@@ -15,10 +15,16 @@ timer = Timer()
 # constants
 ONE_OVER_SQRT_TWO = 1/np.sqrt(2)
 rng = np.random.default_rng()
+# fd = 10
+# T = 100E-3
+# RHO = j0(2*pi*fd*T)
+# SQRT_ONE_MIN_RHO_2 = sqrt(1 - RHO**2)
+
 
 class GTWC(nn.Module):
     def __init__(self, conf):
         super(GTWC, self).__init__()
+
         # Shared parameters across both users.
         self.conf = conf
         self.d_model = conf.d_model
