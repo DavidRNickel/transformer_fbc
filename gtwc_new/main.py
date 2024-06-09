@@ -148,6 +148,13 @@ if __name__=='__main__':
                         f'{nowtime}.pt')
         
     
+    nowtime = datetime.date.now().strftime('%Y%m%d-%H%M%S')
+    torch.save({'epoch' : epoch,
+                'model_state_dict' : gtwc.state_dict(),
+                'optimizer_state_dict' : optimizer.state_dict(),
+                'scheduler_state_dict' : scheduler.state_dict(),
+                'loss' : L},
+                f'{nowtime}.pt')
     print(f'ber: {np.array(bit_errors)}')
     print(f'bler: {np.array(block_errors)}')
     b = {'ber' : np.array(bit_errors), 'bler' : np.array(block_errors)}
