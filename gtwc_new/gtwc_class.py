@@ -171,7 +171,6 @@ class GTWC(nn.Module):
                 q_2 = torch.cat((px_2, fbi_2, bel_2),axis=2)
 
         b_1, b_2 = b
-        chan_use_idx = 
 
         return (torch.cat((b_1, q_1, t * torch.ones(self.batch_size, self.num_blocks, 1).to(self.device)), axis=2), 
                 torch.cat((b_2, q_2, t * torch.ones(self.batch_size, self.num_blocks, 1).to(self.device)), axis=2))

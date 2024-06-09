@@ -22,13 +22,13 @@ if __name__=='__main__':
     timer = Timer()
 
     os.makedirs(conf.save_dir, exist_ok=True)
-    orig_stdout = sys.orig_stdout
+    orig_stdout = sys.stdout
     outfile = open(os.path.join(conf.save_dir, conf.log_file),'w')
     sys.stdout=outfile
 
     # Make parameters that have to be calculated using other parameters
-    conf.knowledge_vec_len = conf.M + 2*(conf.T-1) + 1
-    conf.noise_pwr_ff = 10**(-conf.snr_ff/10)
+    conf.knowledge_vec_len = conf.M + 2*(conf.T-1) + 1; conf.d_model = 32
+    conf.noise_pwr_ff = 10**(-conf.snr_ff/10); conf.use_belief_network = False
     conf.noise_pwr_fb = 10**(-conf.snr_fb/10)
     conf.test_batch_size = conf.batch_size
     conf.num_training_samps = int(1000 * conf.batch_size)
