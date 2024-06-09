@@ -93,7 +93,7 @@ class GTWC(nn.Module):
     #
     #
     def forward(self, bitstreams_1, bitstreams_2, noise_ff=None, noise_fb=None):
-        know_vecs_1, know_vecs_2 = self.make_knowledge_vecs(b=(bitstreams_1, bitstreams_2))
+        know_vecs_1, know_vecs_2 = self.make_knowledge_vecs(b=(bitstreams_1, bitstreams_2), t=0)
         beliefs_1 = None
         beliefs_2 = None
 
@@ -127,7 +127,7 @@ class GTWC(nn.Module):
                 bv1, bv2 = self.make_belief_vecs()
                 beliefs_1, beliefs_2 = self.get_beliefs(bv1, bv2)
 
-            know_vecs_1, know_vecs_2 = self.make_knowledge_vecs(b=(bitstreams_1, bitstreams_2), 
+            know_vecs_1, know_vecs_2 = self.make_knowledge_vecs(b=(bitstreams_1, bitstreams_2), t=t+1,
                                                                 fb_info=(self.recvd_y_1, self.recvd_y_2), 
                                                                 prev_x=(self.prev_xmit_signal_1, self.prev_xmit_signal_2), 
                                                                 beliefs=(beliefs_1, beliefs_2) if self.use_beliefs else None)
@@ -139,40 +139,42 @@ class GTWC(nn.Module):
 
     #
     #
-    def make_knowledge_vecs(self, b, fb_info=None, prev_x=None, beliefs=None):
+    def make_knowledge_vecs(self, b, t, fb_info=None, prev_x=None, beliefs=None):
         if fb_info is None:
-            fbi_1 = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
-            fbi_2 = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
-            px_1 = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
-            px_2 = -100 * torch.ones(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
+            fbi_1 = torch.zeros(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
+            fbi_2 = torch.zeros(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
+            px_1 = torch.zeros(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
+            px_2 = torch.zeros(self.batch_size, self.num_blocks, self.T - 1).to(self.device)
             if self.use_beliefs == False:
                 q_1 = torch.cat((px_1, fbi_1),axis=2)
                 q_2 = torch.cat((px_2, fbi_2),axis=2)
             else:
-                bel_1 = -100 * torch.ones(self.batch_size, self.num_blocks, 2*self.M).to(self.device)
-                bel_2 = -100 * torch.ones(self.batch_size, self.num_blocks, 2*self.M).to(self.device)
+                bel_1 = torch.zeros(self.batch_size, self.num_blocks, 2*self.M).to(self.device)
+                bel_2 = torch.zeros(self.batch_size, self.num_blocks, 2*self.M).to(self.device)
                 q_1 = torch.cat((px_1, fbi_1, bel_1),axis=2)
                 q_2 = torch.cat((px_2, fbi_2, bel_2),axis=2)
         else:
             fbi_1, fbi_2 = fb_info
             px_1, px_2 = prev_x
-            px_1 = F.pad(px_1, pad=(0,self.T-1-px_1.shape[-1]), value=-100)
-            px_2 = F.pad(px_2, pad=(0,self.T-1-px_2.shape[-1]), value=-100)
-            fbi_1 = F.pad(fbi_1, pad=(0,self.T-1-fbi_1.shape[-1]), value=-100)
-            fbi_2 = F.pad(fbi_2, pad=(0,self.T-1-fbi_2.shape[-1]), value=-100)
+            px_1 = F.pad(px_1, pad=(0,self.T-1-px_1.shape[-1]), value=0)
+            px_2 = F.pad(px_2, pad=(0,self.T-1-px_2.shape[-1]), value=0)
+            fbi_1 = F.pad(fbi_1, pad=(0,self.T-1-fbi_1.shape[-1]), value=0)
+            fbi_2 = F.pad(fbi_2, pad=(0,self.T-1-fbi_2.shape[-1]), value=0)
             if self.use_beliefs == False:
                 q_1 = torch.cat((px_1, fbi_1),axis=2)
                 q_2 = torch.cat((px_2, fbi_2),axis=2)
             else:
                 bel_1, bel_2 = beliefs
-                bel_1 = F.pad(bel_1, pad=(0,2*self.M-bel_1.shape[-1]), value=-100)
-                bel_2 = F.pad(bel_2, pad=(0,2*self.M-bel_2.shape[-1]), value=-100)
+                bel_1 = F.pad(bel_1, pad=(0,2*self.M-bel_1.shape[-1]), value=0)
+                bel_2 = F.pad(bel_2, pad=(0,2*self.M-bel_2.shape[-1]), value=0)
                 q_1 = torch.cat((px_1, fbi_1, bel_1),axis=2)
                 q_2 = torch.cat((px_2, fbi_2, bel_2),axis=2)
 
         b_1, b_2 = b
+        chan_use_idx = 
 
-        return torch.cat((b_1, q_1),axis=2), torch.cat((b_2, q_2),axis=2)
+        return (torch.cat((b_1, q_1, t * torch.ones(self.batch_size, self.num_blocks, 1).to(self.device)), axis=2), 
+                torch.cat((b_2, q_2, t * torch.ones(self.batch_size, self.num_blocks, 1).to(self.device)), axis=2))
     
     #
     #

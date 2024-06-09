@@ -6,19 +6,35 @@ import numpy as np
 from math import sqrt
 import datetime
 import sys
+import os
 import pickle as pkl
 
 from gtwc_class import GTWC
-from config_class import Config
+from make_argparser import make_parser
 from timer_class import Timer
 from test_model import test_model
 
 
 if __name__=='__main__':
-    conf = Config()
+    parser, _ = make_parser()
+    conf = parser.parse_args(sys.argv[1:])
     device = conf.device
     timer = Timer()
 
+    os.makedirs(conf.save_dir, exist_ok=True)
+    orig_stdout = sys.orig_stdout
+    outfile = open(os.path.join(conf.save_dir, conf.log_file),'w')
+    sys.stdout=outfile
+
+    # Make parameters that have to be calculated using other parameters
+    conf.knowledge_vec_len = conf.M + 2*(conf.T-1) + 1
+    conf.noise_pwr_ff = 10**(-conf.snr_ff/10)
+    conf.noise_pwr_fb = 10**(-conf.snr_fb/10)
+    conf.test_batch_size = conf.batch_size
+    conf.num_training_samps = int(1000 * conf.batch_size)
+    conf.num_iters_per_epoch = conf.num_training_samps // conf.batch_size
+
+    
     gtwc = GTWC(conf).to(device)
     nowtime = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
 
@@ -31,14 +47,15 @@ if __name__=='__main__':
             writer = SummaryWriter()
 
     bs = conf.batch_size
-    bitstreams_train_1 = torch.randint(0,2,(conf.num_training_samps, conf.K)).to(device)
-    bitstreams_train_2 = torch.randint(0,2,(conf.num_training_samps, conf.K)).to(device)
+    num_epochs = conf.num_epochs
+    grad_clip = conf.grad_clip
+
+    num_epochs = conf.num_epochs 
+    optimizer = torch.optim.AdamW(gtwc.parameters(), lr=conf.optim_lr, weight_decay=conf.optim_weight_decay)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda = lambda epoch: (1-epoch/conf.num_epochs))
+    loss_fn = nn.CrossEntropyLoss()
 
     epoch_start = 0
-    num_epochs = conf.num_epochs 
-    grad_clip = conf.grad_clip 
-    optimizer = torch.optim.AdamW(gtwc.parameters(), lr=conf.optim_lr, weight_decay=conf.optim_weight_decay)
-    scheduler = torch.optim.lr_scheduler.PolynomialLR(optimizer, total_iters=num_epochs) 
     if conf.loadfile is not None:
         checkpoint = torch.load(conf.loadfile)
         gtwc.load_state_dict(checkpoint['model_state_dict'])
@@ -46,7 +63,6 @@ if __name__=='__main__':
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         epoch_start = checkpoint['epoch']
 
-    loss_fn = nn.CrossEntropyLoss()
     bit_errors = []
     block_errors = []
     ctr = 0
@@ -54,8 +70,8 @@ if __name__=='__main__':
         gtwc.train()
         losses = []
         for i in range(conf.num_iters_per_epoch):
-            bitstreams_1 = bitstreams_train_1[bs*i:bs*(i+1)].int()#.to(device)
-            bitstreams_2 = bitstreams_train_2[bs*i:bs*(i+1)].int()#.to(device)
+            bitstreams_1 = torch.randint(0, 2, (bs, conf.K)).to(device)
+            bitstreams_2 = torch.randint(0, 2, (bs, conf.K)).to(device)
 
             optimizer.zero_grad()
             b1, b2 = bitstreams_1.view(bs,-1,conf.M), bitstreams_2.view(bs,-1,conf.M)
@@ -88,19 +104,10 @@ if __name__=='__main__':
                 writer.add_scalar('loss/train/loss', L, ctr)
                 ctr += 1
 
-            if i % 50 == 0:
-                ber_tup, bler_tup, _ = test_model(conf.num_test_samps, model=gtwc, conf=conf)
-                ber, ber_1, ber_2 = ber_tup
-                bler, bler_1, bler_2 = bler_tup
-                print(f'Epoch (iter): {epoch} ({i}), Loss: {L}')
-                print(f'BER: {ber:e}, BLER: {bler:e}\n')
-                gtwc.train()
-
+            if i % 25 == 0:
+                print(f'Epoch (iter): {epoch} ({i}), Loss: {L}, BER: {ber}, BLER: {bler}')
     
-        ber_tup, bler_tup, _ = test_model(conf.num_test_samps, model=gtwc, conf=conf)
-        # ber_tup, bler_tup, _ = test_model(test_bits_1=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device),
-        #                                   test_bits_2=torch.randint(0,2,(conf.num_valid_samps, conf.K)).to(device), 
-        #                                   model=gtwc, conf=conf)
+        ber_tup, bler_tup, _ = test_model(model=gtwc, conf=conf)
         ber, ber_1, ber_2 = ber_tup
         bler, bler_1, bler_2 = bler_tup
         bit_errors.append(ber)
@@ -122,16 +129,21 @@ if __name__=='__main__':
         print(f'BER: {ber:e}, BLER {bler:e}')
         print('====================================================\n'); nowtime = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
 
-        torch.save({'epoch' : epoch,
-                    'model_state_dict' : gtwc.state_dict(),
-                    'optimizer_state_dict' : optimizer.state_dict(),
-                    'scheduler_state_dict' : scheduler.state_dict(),
-                    'loss' : L},
-                    f'{nowtime}.pt')
+        if epoch % conf.save_freq == 0:
+            nowtime = datetime.date.now().strftime('%Y%m%d-%H%M%S')
+            torch.save({'epoch' : epoch,
+                        'model_state_dict' : gtwc.state_dict(),
+                        'optimizer_state_dict' : optimizer.state_dict(),
+                        'scheduler_state_dict' : scheduler.state_dict(),
+                        'loss' : L},
+                        f'{nowtime}.pt')
         
     
     print(f'ber: {np.array(bit_errors)}')
     print(f'bler: {np.array(block_errors)}')
     b = {'ber' : np.array(bit_errors), 'bler' : np.array(block_errors)}
-    with open('test_results.pkl', 'wb') as f:
+    with open(os.path.join(conf.save_dir, 'test_results.pkl'), 'wb') as f:
         pkl.dump(b,f)
+
+    sys.stdout = orig_stdout
+    outfile.close()
