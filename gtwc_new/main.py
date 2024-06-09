@@ -145,7 +145,7 @@ if __name__=='__main__':
                         'optimizer_state_dict' : optimizer.state_dict(),
                         'scheduler_state_dict' : scheduler.state_dict(),
                         'loss' : L},
-                        f'{nowtime}.pt')
+                        os.path.join(conf.save_dir, f'{nowtime}.pt'))
         
     
     nowtime = datetime.date.now().strftime('%Y%m%d-%H%M%S')
@@ -154,7 +154,8 @@ if __name__=='__main__':
                 'optimizer_state_dict' : optimizer.state_dict(),
                 'scheduler_state_dict' : scheduler.state_dict(),
                 'loss' : L},
-                f'{nowtime}.pt')
+                os.path.join(conf.save_dir, f'{nowtime}.pt'))
+
     print(f'ber: {np.array(bit_errors)}')
     print(f'bler: {np.array(block_errors)}')
     b = {'ber' : np.array(bit_errors), 'bler' : np.array(block_errors)}
