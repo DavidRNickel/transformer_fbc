@@ -178,8 +178,8 @@ class GTWC(nn.Module):
     #
     #
     def make_belief_vecs(self):
-        bv1 = F.pad(self.recvd_y_1, pad=(0, self.T-1 - self.recvd_y_1.shape[-1]), value=-100)
-        bv2 = F.pad(self.recvd_y_2, pad=(0, self.T-1 - self.recvd_y_2.shape[-1]), value=-100)
+        bv1 = F.pad(self.recvd_y_1, pad=(0, self.T-1 - self.recvd_y_1.shape[-1]), value=0)
+        bv2 = F.pad(self.recvd_y_2, pad=(0, self.T-1 - self.recvd_y_2.shape[-1]), value=0)
 
         return bv1, bv2
 
@@ -188,13 +188,13 @@ class GTWC(nn.Module):
     def transmit_bits_from_encoder(self, k1, k2, t):
         x1 = self.emb_enc_1(k1)
         x1 = self.pos_enc_enc_1(x1)
-        x1 = self.enc_1(x1, src_key_padding_mask = (k1 == -100)[:,:,0])
+        x1 = self.enc_1(x1)
         x1 = self.enc_raw_out_1(x1).squeeze(-1)
         x1 = self.tanh(x1 - x1.mean())
 
         x2 = self.emb_enc_2(k2)
         x2 = self.pos_enc_enc_2(x2)
-        x2 = self.enc_2(x2, src_key_padding_mask = (k2 == -100)[:,:,0])
+        x2 = self.enc_2(x2)
         x2 = self.enc_raw_out_2(x2).squeeze(-1)
         x2 = self.tanh(x2 - x2.mean())
 
