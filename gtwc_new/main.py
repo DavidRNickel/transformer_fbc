@@ -139,7 +139,7 @@ if __name__=='__main__':
         print('====================================================\n'); nowtime = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
 
         if epoch % conf.save_freq == 0:
-            nowtime = datetime.date.now().strftime('%Y%m%d-%H%M%S')
+            nowtime = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
             torch.save({'epoch' : epoch,
                         'model_state_dict' : gtwc.state_dict(),
                         'optimizer_state_dict' : optimizer.state_dict(),
@@ -148,7 +148,7 @@ if __name__=='__main__':
                         os.path.join(conf.save_dir, f'{nowtime}.pt'))
         
     
-    nowtime = datetime.date.now().strftime('%Y%m%d-%H%M%S')
+    nowtime = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     torch.save({'epoch' : epoch,
                 'model_state_dict' : gtwc.state_dict(),
                 'optimizer_state_dict' : optimizer.state_dict(),
