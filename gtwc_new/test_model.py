@@ -12,7 +12,7 @@ def test_model(model, conf, show_progress_interval=None):
     bler_2 = 0
     # pwr_avg = np.zeros((batch_size, conf.N))
     with torch.no_grad():
-        for e in range(conf.num_test_epochs):
+        for e in range(conf.num_validation_epochs):
             bits_1 = torch.randint(0, 2, (conf.test_batch_size, conf.K)).to(conf.device)
             bits_2 = torch.randint(0, 2, (conf.test_batch_size, conf.K)).to(conf.device)
             b1 = bits_1.view(conf.test_batch_size, -1, conf.M)
