@@ -29,7 +29,7 @@ def make_parser():
     parser.add_argument('--num-epochs', type=int, default=120)
     parser.add_argument('--num-validation-epochs', type=int, default=10)
     parser.add_argument('--num-test-epochs', type=int, default=int(1E5))
-    parser.add_argument( '--batch-size', type=int, default=int(1E1))  
+    parser.add_argument( '--batch-size', type=int, default=int(1E4))  
     parser.add_argument('--grad-clip', type=float, default=.5)
 
     return parser, t
