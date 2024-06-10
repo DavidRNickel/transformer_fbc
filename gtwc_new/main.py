@@ -33,7 +33,7 @@ if __name__=='__main__':
     conf.use_belief_network = False
     conf.noise_pwr_fb = 10**(-conf.snr_fb/10)
     conf.test_batch_size = conf.batch_size
-    conf.num_training_samps = int(1000 * conf.batch_size)
+    conf.num_training_samps = int(1 * conf.batch_size)
     conf.num_iters_per_epoch = conf.num_training_samps // conf.batch_size
     conf.num_layers_xmit = 2 
     conf.num_layers_belief = 2
