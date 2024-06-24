@@ -251,11 +251,6 @@ class GTWC(nn.Module):
         return y1.view(self.batch_size, -1, 2*self.M), y2.view(self.batch_size, -1, 2*self.M)
 
     #
-    # Make AWGN
-    def generate_awgn(self,shape, noise_power):
-        return sqrt(noise_power) * torch.randn(size=shape).to(self.device)
-
-    #
     # Take the input bitstreams and map them to their one-hot representation.
     def bits_to_one_hot(self, bitstreams):
         # This is a torch adaptation of https://stackoverflow.com/questions/15505514/binary-numpy-array-to-list-of-integers
